@@ -1,7 +1,10 @@
 from developer.api.dev_api import DevClient
+from developer.util.local_game_manager import LocalGameManager
 from shared.main_menu import show_main_menu
 from developer.ui.dev_menu import show_lobby_menu, show_game_entries
-from shared.input_helpers import dev_create_game
+from shared.input_helpers import dev_create_game, dev_upload_game
+
+
 def prompt_credentials():
     username = input("Username: ").strip()
     password = input("Password: ").strip()
@@ -10,6 +13,7 @@ def prompt_credentials():
 
 def main():
     client = DevClient()
+    local_mgr = LocalGameManager()
     auth_status = False
     username = ""
     try:
@@ -36,15 +40,31 @@ def main():
         while True:
             action = show_lobby_menu()
             if action == "list":
+                # Show local manifests first, then server-side entries.
+                local_entries = local_mgr.list_manifests()
+                if local_entries:
+                    print("=== Local Game Manifests ===")
+                    show_game_entries(local_entries)
                 resp = client.listGame(username)
                 if resp.status == "ok":
+                    print("=== Server Game Manifests ===")
                     show_game_entries(resp.payload.get("games", []))
                 else:
                     print(f"Error [{resp.code}]: {resp.message}")
 
             if action == "create":
                 create_game_params = dev_create_game()
-                resp = client.createGame(username, create_game_params["game_name"], create_game_params["game_type"])
+                local_mgr.create_manifest(
+                    create_game_params["game_name"],
+                    create_game_params["version"],
+                    create_game_params["game_type"],
+                    create_game_params["description"],
+                )
+
+            if action == "upload":
+                upload_game_params = dev_upload_game()
+                local_mgr.upload_game(upload_game_params["game_name"])
+                resp = client.uploadGame(username, upload_game_params)
                 if resp.status == "ok":
                     show_game_entries([resp.payload.get("game", {})])
                 else:

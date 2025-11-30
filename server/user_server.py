@@ -2,8 +2,10 @@ import threading
 
 from loguru import logger
 from server.core.auth import Authenticator
-from server.core.handlers.auth_handler import register_player, login_player
-from server.core.protocol import ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER
+from server.core.handlers.auth_handler import register_player, login_player, logout_player
+from server.core.handlers.game_handler import list_game
+from server.core.protocol import ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_LIST_GAME, ACCOUNT_LOGOUT_PLAYER, \
+    GAME_GET_DETAILS
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 import user.config.user_config as cfg
 from server.core.protocol import Message, message_to_dict
@@ -35,6 +37,9 @@ class user_server:
         handlers = {
             ACCOUNT_REGISTER_PLAYER: register_player,
             ACCOUNT_LOGIN_PLAYER: login_player,
+            ACCOUNT_LOGOUT_PLAYER: logout_player,
+            GAME_LIST_GAME: list_game,
+            GAME_GET_DETAILS: detail_game,
         }
         with (conn):
             for msg in recv_json_lines(conn):

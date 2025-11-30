@@ -16,9 +16,11 @@ def read_choice(min_val: int, max_val: int) -> int:
 def dev_create_game() -> dict:
     game_name = ""
     game_type = ""
+    version = "1.0.0"
+    description = ""
     while True:
         raw = input("Enter game name: ").strip()
-        if raw is None:
+        if not raw:
             print("Please enter a game name.")
             continue
         game_name = raw
@@ -31,4 +33,41 @@ def dev_create_game() -> dict:
             continue
         game_type = raw
         break
-    return {"game_name": game_name, "game_type": game_type}
+    raw_ver = input("Enter version (default 1.0.0): ").strip()
+    if raw_ver:
+        version = raw_ver
+    description = input("Enter description (optional): ").strip()
+    return {"game_name": game_name, "game_type": game_type, "version": version, "description": description}
+
+def dev_upload_game() -> dict:
+    game_name = ""
+    game_type = ""
+    description = ""
+    max_players = 0
+    while True:
+        raw = input("Enter game name: ").strip()
+        if not raw:
+            print("Please enter a game name.")
+            continue
+        game_name = raw
+        break
+
+    while True:
+        raw = input("Enter game type (CLI/GUI, 2P/Multi): ").strip()
+        if raw not in ["CLI", "GUI", "2P", "Multi"]:
+            print("Please enter a valid game type.")
+            continue
+        game_type = raw
+        break
+
+    description = input("Enter description (optional): ").strip()
+    raw_max = input("Enter max players (default 0): ").strip()
+    if raw_max.isdigit():
+        max_players = int(raw_max)
+
+    return {
+        "game_name": game_name,
+        "game_type": game_type,
+        "description": description,
+        "max_players": max_players,
+    }

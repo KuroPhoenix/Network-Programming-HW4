@@ -1,11 +1,11 @@
  {
-    "game_name": "tictactoe",
+    "game_name": "your_game_name",
     "version": "1.0.0",
-    "description": "Classic 2P CLI tic-tac-toe.",
-    "type": "cli",
+    "description": "Short description of the game.",
+    "type": "CLI",
     "max_players": 2,
     "lobby_requires_download": true,
-
+    "uploaded": false,
     "server": {
       "command": "python server/main.py --port {port} --room {room_id}",
       "working_dir": "server",

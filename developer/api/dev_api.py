@@ -7,7 +7,7 @@ from server.core.protocol import (
     ACCOUNT_LOGIN_DEVELOPER,
     ACCOUNT_REGISTER_DEVELOPER,
     ACCOUNT_LOGOUT_DEVELOPER,
-    GAME_CREATE_GAME,
+    GAME_UPLOAD_GAME,
     GAME_LIST_GAME,
     Message,
 )
@@ -46,14 +46,25 @@ class DevClient:
         return resp
 
     def listGame(self, username: str):
-        resp = send_request(self.conn, self.file, self.token, GAME_LIST_GAME, {"username": username})
+        resp = send_request(self.conn, self.file, self.token, GAME_LIST_GAME, {"username": username, "role": "DEVELOPER"})
         return resp
 
-    def createGame(self, username: str, game_name: str, game_type: str):
-        resp = send_request(self.conn, self.file, self.token, GAME_CREATE_GAME, {"username": username, "game_name": game_name, "type": game_type})
+    def uploadGame(self, username: str, payload: dict[str, Any]):
+        resp = send_request(
+            self.conn,
+            self.file,
+            self.token,
+            GAME_UPLOAD_GAME,
+            {
+                "username": username,
+                "game_name": payload["game_name"],
+                "type": payload["game_type"],
+                "description": payload.get("description", ""),
+                "max_players": payload.get("max_players", 0),
+            },
+        )
         return resp
 
     def logout(self, username: str):
         resp = send_request(self.conn, self.file, self.token, ACCOUNT_LOGOUT_DEVELOPER, {"username": username})
         return resp
-

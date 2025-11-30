@@ -26,23 +26,37 @@ class GameManager:
                     game_name TEXT NOT NULL,
                     version INTEGER,
                     type TEXT NOT NULL,
+                    description TEXT,
+                    max_players INTEGER,
                     PRIMARY KEY (author, game_name, version, type)
                 )
                 """
             )
         logger.debug(f"Game schema ensured at {self.db_path}")
 
-    def list_games(self, username):
+    def list_games(self, username, role):
         with self._conn_db() as conn:
-            cur = conn.execute(
-                "SELECT * FROM games WHERE author=?",
-                (username, ),
-            )
+            if role == "DEVELOPER":
+                cur = conn.execute(
+                    "SELECT * FROM games WHERE author=?",
+                    (username, ),
+                )
+            if role == "PLAYER":
+                cur = conn.execute(
+                    "SELECT * FROM games",
+                )
             cols = [c[0] for c in cur.description]
             rows = [dict(zip(cols, row)) for row in cur.fetchall()]
         return rows
 
-    def create_game(self, username: str, game_name: str, type: str):
+    def create_game(self, username: str, game_name: str, type: str, description: str, max_players: int):
+        """
+        Usage: Devs uploads their store-ready games, either as an update or as a new product
+        :param username:
+        :param game_name:
+        :param type:
+        :return:
+        """
         logger.info(f"user {username} has requested createGame with game_name {game_name}, type {type}.")
         with self._conn_db() as conn:
             cur = conn.execute(
@@ -55,8 +69,27 @@ class GameManager:
                 logger.info(f"game {game_name} already exists. Newest version is {rows[0]}")
                 new_version = rows[0] + 1
             conn.execute(
-                "INSERT INTO games(author, game_name, version, type) VALUES(?,?,?,?)",
-                (username, game_name, new_version, type),
+                "INSERT INTO games(author, game_name, version, type, description, max_players) VALUES(?,?,?,?,?,?)",
+                (username, game_name, new_version, type, description, max_players),
             )
             logger.info(f"added {new_version} version to game {game_name} (type {type})")
-            return {"author": username, "game_name": game_name, "version": new_version, "type": type}
+            return {
+                "author": username,
+                "game_name": game_name,
+                "version": new_version,
+                "type": type,
+                "description": description,
+                "max_players": max_players,
+            }
+
+    def get_game(self, game_name: str):
+        with self._conn_db() as conn:
+            cur = conn.execute(
+                "SELECT * FROM games WHERE game_name=? ORDER BY version DESC LIMIT 1",
+                (game_name,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [c[0] for c in cur.description]
+            return dict(zip(cols, row))

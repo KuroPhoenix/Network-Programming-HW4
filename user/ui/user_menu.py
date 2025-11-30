@@ -1,10 +1,15 @@
 from shared.input_helpers import read_choice
 MAIN_OPTIONS = [
-    ("List my games", "list"),
-    ("Create new game", "create"),
+    ("Visit Store", "visit_store"),
     ("Logout", "logout"),
 ]
-
+STORE_OPTIONS = [
+    ("List games (paged)", "list_games"),
+    ("Next page", "next"),
+    ("Previous page", "prev"),
+    ("View game detail", "detail"),
+    ("Back", "back"),
+]
 
 def show_lobby_menu():
     print("=== Main Menu ===")
@@ -14,6 +19,13 @@ def show_lobby_menu():
     return MAIN_OPTIONS[choice - 1][1]
 
 
+def show_store_menu():
+    print("=== Store Menu ===")
+    for idx, (label, _) in enumerate(STORE_OPTIONS, 1):
+        print(f"{idx}. {label}")
+    choice = read_choice(1, len(STORE_OPTIONS))
+    return STORE_OPTIONS[choice - 1][1]
+
 def show_game_entries(rows):
     print("=== Game Entries ===")
     for row in rows:
@@ -22,10 +34,8 @@ def show_game_entries(rows):
             print(f"Author: {row.get('author')}")
         if "type" in row:
             print(f"Type: {row.get('type')}")
-        if "version" in row:
-            print(f"Version: {row.get('version')}")
         if "description" in row:
             print(f"Description: {row.get('description')}")
-        if "_path" in row:
-            print(f"Path: {row.get('_path')}")
+        if "version" in row:
+            print(f"Version: {row.get('version')}")
         print("-" * 20)
