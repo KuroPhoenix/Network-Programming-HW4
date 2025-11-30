@@ -1,0 +1,8 @@
+2025-11-30 15:34:59.841 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 15:34:59.841 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 15:35:00.521 | INFO     | __main__:handle_client:33 - user client connected: ('127.0.0.1', 37310)
+2025-11-30 15:35:00.521 | INFO     | __main__:handle_client:55 - user client disconnected: ('127.0.0.1', 37310)
+2025-11-30 15:35:01.021 | INFO     | __main__:handle_client:33 - user client connected: ('127.0.0.1', 37312)
+2025-11-30 15:35:35.723 | INFO     | server.core.auth:register:60 - Registered user 'ff' with role 'player'
+2025-11-30 15:35:37.595 | INFO     | server.core.auth:login:86 - Login success for 'ff' role 'player'
+2025-11-30 15:35:40.239 | INFO     | __main__:handle_client:55 - user client disconnected: ('127.0.0.1', 37312)

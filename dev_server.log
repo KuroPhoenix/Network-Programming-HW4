@@ -1,0 +1,9 @@
+2025-11-30 15:34:59.841 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 15:34:59.841 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 15:35:00.549 | INFO     | __main__:handle_client:32 - dev client connected: ('127.0.0.1', 49838)
+2025-11-30 15:35:00.550 | INFO     | __main__:handle_client:54 - dev client disconnected: ('127.0.0.1', 49838)
+2025-11-30 15:35:01.030 | INFO     | __main__:handle_client:32 - dev client connected: ('127.0.0.1', 49848)
+2025-11-30 15:35:06.891 | INFO     | server.core.auth:register:53 - Register failed: duplicate username 'hi' role 'developer'
+2025-11-30 15:35:13.683 | INFO     | server.core.auth:register:60 - Registered user 'll' with role 'developer'
+2025-11-30 15:35:16.701 | INFO     | server.core.auth:login:86 - Login success for 'll' role 'developer'
+2025-11-30 15:35:42.864 | INFO     | __main__:handle_client:54 - dev client disconnected: ('127.0.0.1', 49848)

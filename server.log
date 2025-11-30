@@ -1,0 +1,79 @@
+2025-11-29 23:56:21.844 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-29 23:56:21.844 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:02:48.218 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:02:48.218 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:02:48.220 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15433
+2025-11-30 02:02:48.220 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:15433
+2025-11-30 02:02:49.093 | INFO     | __main__:handle_client:33 - user client connected: ('127.0.0.1', 44320)
+2025-11-30 02:02:49.094 | INFO     | __main__:handle_client:55 - user client disconnected: ('127.0.0.1', 44320)
+2025-11-30 02:09:19.964 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:09:19.965 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:13:09.006 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15433
+2025-11-30 02:13:09.006 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:13:09.007 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:13:09.007 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:15433
+2025-11-30 02:13:32.881 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:13:32.881 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15433
+2025-11-30 02:13:32.881 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:13:32.881 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:15433
+2025-11-30 02:22:12.941 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:22:12.941 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:24:33.807 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:24:33.807 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:25:45.135 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:25:45.135 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:25:54.863 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15433
+2025-11-30 02:25:54.863 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:15433
+2025-11-30 02:28:34.163 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15433
+2025-11-30 02:28:34.163 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:15433
+2025-11-30 02:30:42.193 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:30:42.193 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:32:55.229 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15432
+2025-11-30 02:32:55.229 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:15432
+2025-11-30 02:33:13.030 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:15433
+2025-11-30 02:33:13.030 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:15433
+2025-11-30 02:50:08.452 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 02:50:08.452 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 02:50:08.452 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 02:50:08.452 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 13:58:10.018 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 13:58:10.018 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 13:58:10.018 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 13:58:10.019 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 14:00:29.853 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 14:00:29.853 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 14:00:29.854 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 14:00:29.854 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 14:01:20.818 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 14:01:20.818 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 14:01:20.818 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 14:01:20.818 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 14:05:45.560 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 14:05:45.560 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 14:05:45.575 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 14:05:45.576 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 14:05:46.236 | INFO     | __main__:handle_client:33 - user client connected: ('127.0.0.1', 58356)
+2025-11-30 14:05:46.237 | INFO     | __main__:handle_client:55 - user client disconnected: ('127.0.0.1', 58356)
+2025-11-30 14:05:46.259 | INFO     | __main__:handle_client:32 - dev client connected: ('127.0.0.1', 43786)
+2025-11-30 14:05:46.260 | INFO     | __main__:handle_client:54 - dev client disconnected: ('127.0.0.1', 43786)
+2025-11-30 14:05:46.574 | INFO     | __main__:handle_client:33 - user client connected: ('127.0.0.1', 54016)
+2025-11-30 14:56:26.668 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 14:56:26.668 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 14:56:26.668 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 14:56:26.668 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 14:56:27.386 | INFO     | __main__:handle_client:33 - user client connected: ('127.0.0.1', 38360)
+2025-11-30 14:56:27.386 | INFO     | __main__:handle_client:55 - user client disconnected: ('127.0.0.1', 38360)
+2025-11-30 14:56:27.411 | INFO     | __main__:handle_client:32 - dev client connected: ('127.0.0.1', 35356)
+2025-11-30 14:56:27.412 | INFO     | __main__:handle_client:54 - dev client disconnected: ('127.0.0.1', 35356)
+2025-11-30 14:58:00.627 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16532
+2025-11-30 14:58:00.627 | INFO     | __main__:start_server:29 - user server listening on 127.0.0.1:16532
+2025-11-30 14:58:00.645 | INFO     | server.util.net:create_listener:18 - listening on 127.0.0.1:16533
+2025-11-30 14:58:00.645 | INFO     | __main__:start_server:28 - Dev server listening on 127.0.0.1:16533
+2025-11-30 14:58:01.265 | INFO     | __main__:handle_client:33 - user client connected: ('127.0.0.1', 40200)
+2025-11-30 14:58:01.266 | INFO     | __main__:handle_client:55 - user client disconnected: ('127.0.0.1', 40200)
+2025-11-30 14:58:01.291 | INFO     | __main__:handle_client:32 - dev client connected: ('127.0.0.1', 54974)
+2025-11-30 14:58:01.292 | INFO     | __main__:handle_client:54 - dev client disconnected: ('127.0.0.1', 54974)
+2025-11-30 14:58:01.770 | INFO     | __main__:handle_client:32 - dev client connected: ('127.0.0.1', 54984)
+2025-11-30 14:58:12.090 | INFO     | server.core.auth:register:63 - Registered user 'hi' with role 'developer'
+2025-11-30 14:58:16.453 | INFO     | server.core.auth:login:83 - Login failed: duplicate session for 'hi' role 'developer'
+2025-11-30 15:00:43.426 | INFO     | __main__:handle_client:54 - dev client disconnected: ('127.0.0.1', 54984)
