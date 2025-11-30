@@ -2,8 +2,10 @@ import threading
 
 from loguru import logger
 from server.core.auth import Authenticator
-from server.core.handlers.auth_handler import register_developer, login_developer
-from server.core.protocol import ACCOUNT_REGISTER_DEVELOPER, ACCOUNT_LOGIN_DEVELOPER, Message, message_to_dict
+from server.core.handlers.auth_handler import register_developer, login_developer, logout_developer
+from server.core.handlers.game_handler import list_dev, create_dev
+from server.core.protocol import ACCOUNT_REGISTER_DEVELOPER, ACCOUNT_LOGIN_DEVELOPER, Message, message_to_dict, \
+    GAME_LIST_GAME, GAME_CREATE_GAME, ACCOUNT_LOGOUT_DEVELOPER
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 import developer.dev_config.dev_config as cfg
 class DevServer:
@@ -33,6 +35,9 @@ class DevServer:
         handlers = {
             ACCOUNT_REGISTER_DEVELOPER: register_developer,
             ACCOUNT_LOGIN_DEVELOPER: login_developer,
+            ACCOUNT_LOGOUT_DEVELOPER: logout_developer,
+            GAME_LIST_GAME: list_dev,
+            GAME_CREATE_GAME: create_dev,
         }
         with conn:
             for msg in recv_json_lines(conn):

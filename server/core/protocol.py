@@ -6,7 +6,9 @@ ACCOUNT_REGISTER_PLAYER = "ACCOUNT.REGISTER_PLAYER"
 ACCOUNT_LOGIN_PLAYER = "ACCOUNT.LOGIN_PLAYER"
 ACCOUNT_REGISTER_DEVELOPER = "ACCOUNT.REGISTER_DEVELOPER"
 ACCOUNT_LOGIN_DEVELOPER = "ACCOUNT.LOGIN_DEVELOPER"
-
+ACCOUNT_LOGOUT_DEVELOPER = "ACCOUNT.LOGOUT_DEVELOPER"
+GAME_LIST_GAME = "GAME.LIST"
+GAME_CREATE_GAME = "GAME.CREATE"
 @dataclass(frozen=True)
 class Message:
     """
@@ -73,6 +75,38 @@ class AccountResp:
     """
     status: Literal["ok", "error"]
     code: int
-    session_token: str | None = None
+    session_token: str
     message: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
+
+@dataclass(frozen=True)
+class GameReq:
+    """
+    Unified game request for developer_cli -> developer_api <-> developer_server <-> game.
+    :param intent: "create" or "list
+    :param username: account name
+    :session_token: Session/auth token echoed on requests after login
+    :param request_id: correlate responses to requests (Async)
+    """
+    intent: Literal["create", "list"]
+    username: str
+    session_token: str
+    request_id: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+@dataclass(frozen=True)
+class GameResp:
+    """
+    Unified game response envelope data.
+    :param status: "ok" or "error"
+    :param code: numeric code
+    :param message: optional human-readable text
+    :param payload: additional data (e.g., session_token)
+    :param session_token: issued on success
+    """
+    status: Literal["ok", "error"]
+    code: int
+    message: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+

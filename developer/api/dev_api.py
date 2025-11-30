@@ -6,10 +6,10 @@ from developer.dev_config.dev_config import HOST_IP, HOST_PORT
 from server.core.protocol import (
     ACCOUNT_LOGIN_DEVELOPER,
     ACCOUNT_REGISTER_DEVELOPER,
+    ACCOUNT_LOGOUT_DEVELOPER,
+    GAME_CREATE_GAME,
+    GAME_LIST_GAME,
     Message,
-    AccountReq,
-    message_from_dict,
-    message_to_dict,
 )
 
 
@@ -32,12 +32,6 @@ class DevClient:
         finally:
             self.conn.close()
 
-    def send_request(
-        self, mtype: str, payload: dict[str, Any], request_id: str | None = None
-    ) -> Message:
-        msg = Message(type=mtype, payload=payload, token=self.token, request_id=request_id)
-        resp_dict = send_request(self.conn, self.file, message_to_dict(msg))
-        return message_from_dict(resp_dict)
 
     def register(self, username: str, password: str) -> Message:
         resp = send_request(self.conn, self.file, self.token, ACCOUNT_REGISTER_DEVELOPER,{"username": username, "password": password})
@@ -49,5 +43,17 @@ class DevClient:
         resp = send_request(self.conn, self.file, self.token, ACCOUNT_LOGIN_DEVELOPER, {"username": username, "password": password})
         if resp.status == "ok" and resp.payload.get("session_token"):
             self.token = resp.payload["session_token"]
+        return resp
+
+    def listGame(self, username: str):
+        resp = send_request(self.conn, self.file, self.token, GAME_LIST_GAME, {"username": username})
+        return resp
+
+    def createGame(self, username: str, game_name: str, game_type: str):
+        resp = send_request(self.conn, self.file, self.token, GAME_CREATE_GAME, {"username": username, "game_name": game_name, "type": game_type})
+        return resp
+
+    def logout(self, username: str):
+        resp = send_request(self.conn, self.file, self.token, ACCOUNT_LOGOUT_DEVELOPER, {"username": username})
         return resp
 

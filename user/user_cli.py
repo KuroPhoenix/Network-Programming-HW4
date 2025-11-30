@@ -1,5 +1,5 @@
 from user.api.user_api import UserClient
-from user.ui.main_menu import show_main_menu
+from shared.main_menu import show_main_menu
 
 
 def prompt_credentials():

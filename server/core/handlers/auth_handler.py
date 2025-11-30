@@ -32,5 +32,9 @@ def login_developer(payload: dict, auth: Authenticator) -> dict:
     token = auth.login(payload["username"], payload["password"], "developer")
     return {"status": "ok", "code": 0, "payload": {"session_token": token}}
 
-
-
+def logout_developer(payload: dict, auth: Authenticator) -> dict:
+    """
+    Handle developer logout and return a response envelope dict.
+    """
+    stat = auth.logout(payload["username"])
+    return {"status": "ok", "code": 0, "payload": {"message": stat}}

@@ -1,4 +1,4 @@
-from user.ui.input_helpers import read_choice
+from shared.input_helpers import read_choice
 
 MAIN_OPTIONS = [
     ("Register", "register"),
