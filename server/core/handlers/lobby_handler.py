@@ -1,0 +1,48 @@
+from server.core.room_genie import RoomGenie
+from server.core.game_manager import GameManager
+
+
+def list_rooms(genie: RoomGenie) -> dict:
+    rooms = genie.list_rooms()
+    return {"status": "ok", "code": 0, "payload": {"rooms": rooms}}
+
+
+def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
+    username = payload.get("username", "")
+    game_name = payload.get("game_name", "")
+    room_name = payload.get("room_name") or game_name
+    if not username or not game_name:
+        raise ValueError("username and game_name required")
+    game = gmgr.get_game(game_name)
+    if not game:
+        return {"status": "error", "code": 103, "message": "NOT_FOUND"}
+    metadata = {
+        "game_name": game.get("game_name"),
+        "version": game.get("version"),
+        "max_players": game.get("max_players"),
+        "type": game.get("type"),
+    }
+    room = genie.create_room(username, room_name, metadata)
+    return {"status": "ok", "code": 0, "payload": {"room": room}}
+
+
+def join_room(payload: dict, genie: RoomGenie) -> dict:
+    username = payload.get("username", "")
+    room_id = int(payload.get("room_id", 0))
+    as_spectator = bool(payload.get("spectator"))
+    if not username or room_id <= 0:
+        raise ValueError("username and room_id required")
+    if as_spectator:
+        genie.join_room_as_spectator(username, room_id)
+    else:
+        genie.join_room_as_player(username, room_id)
+    return {"status": "ok", "code": 0, "payload": {"room_id": room_id}}
+
+
+def leave_room(payload: dict, genie: RoomGenie) -> dict:
+    username = payload.get("username", "")
+    room_id = int(payload.get("room_id", 0))
+    if not username or room_id <= 0:
+        raise ValueError("username and room_id required")
+    host = genie.leave_room(username, room_id)
+    return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "host": host}}

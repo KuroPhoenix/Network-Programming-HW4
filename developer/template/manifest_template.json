@@ -1,5 +1,6 @@
  {
     "game_name": "your_game_name",
+    "author": "Bob",
     "version": "1.0.0",
     "description": "Short description of the game.",
     "type": "CLI",

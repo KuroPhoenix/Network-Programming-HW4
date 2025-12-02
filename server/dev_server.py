@@ -2,10 +2,12 @@ import threading
 
 from loguru import logger
 from server.core.auth import Authenticator
+from server.core.game_manager import GameManager
 from server.core.handlers.auth_handler import register_developer, login_developer, logout_developer
-from server.core.handlers.game_handler import list_game, upload_game
+from server.core.handlers.game_handler import list_game, upload_metadata, upload_begin, upload_end, upload_chunk
 from server.core.protocol import ACCOUNT_REGISTER_DEVELOPER, ACCOUNT_LOGIN_DEVELOPER, Message, message_to_dict, \
-    GAME_LIST_GAME, GAME_UPLOAD_GAME, ACCOUNT_LOGOUT_DEVELOPER
+    GAME_LIST_GAME, GAME_UPLOAD_METADATA, ACCOUNT_LOGOUT_DEVELOPER, GAME_UPLOAD_END, GAME_UPLOAD_BEGIN, GAME_UPLOAD_CHUNK
+from server.core.storage_manager import StorageManager
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 import developer.dev_config.dev_config as cfg
 class DevServer:
@@ -18,8 +20,10 @@ class DevServer:
         self.host = cfg.HOST_IP
         self.port = cfg.HOST_PORT
 
-        # setting up auth
+        # setting up modules
         self.auth = Authenticator()
+        self.gmgr = GameManager()
+        self.smgr = StorageManager()
 
     def start_server(self):
         """
@@ -33,11 +37,14 @@ class DevServer:
     def handle_client(self, conn, addr):
         logger.info(f"dev client connected: {addr}")
         handlers = {
-            ACCOUNT_REGISTER_DEVELOPER: register_developer,
-            ACCOUNT_LOGIN_DEVELOPER: login_developer,
-            ACCOUNT_LOGOUT_DEVELOPER: logout_developer,
-            GAME_LIST_GAME: list_game,
-            GAME_UPLOAD_GAME: upload_game,
+            ACCOUNT_REGISTER_DEVELOPER: lambda p: register_developer(p, self.auth),
+            ACCOUNT_LOGIN_DEVELOPER: lambda p: login_developer(p, self.auth),
+            ACCOUNT_LOGOUT_DEVELOPER: lambda p: logout_developer(p, self.auth),
+            GAME_LIST_GAME: lambda p: list_game(p, self.gmgr),
+            GAME_UPLOAD_METADATA: lambda p: upload_metadata(p, self.gmgr),
+            GAME_UPLOAD_BEGIN: lambda p: upload_begin(p, self.gmgr, self.smgr),
+            GAME_UPLOAD_CHUNK: lambda p: upload_chunk(p, self.smgr),
+            GAME_UPLOAD_END: lambda p: upload_end(p, self.gmgr, self.smgr),
         }
         with conn:
             for msg in recv_json_lines(conn):
@@ -48,7 +55,7 @@ class DevServer:
                     if not handler:
                         reply = Message(type=mtype or "", status="error", code=100, message="UNKNOWN_TYPE")
                     else:
-                        data = handler(payload, self.auth)
+                        data = handler(payload)
                         reply = Message(
                             type=mtype or "",
                             status=data.get("status"),
