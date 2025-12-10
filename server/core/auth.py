@@ -4,6 +4,11 @@ import bcrypt
 import secrets
 from loguru import logger
 
+# Module-specific error logging
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+logger.add(LOG_DIR / "auth_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "auth.py")
+
 
 class Authenticator:
     """
@@ -57,6 +62,9 @@ class Authenticator:
                 (username, role, pwd_hash),
             )
         token = secrets.token_hex(16)
+        key = (username, role)
+        self.sessions[key] = token
+        self.token_index[token] = key
         logger.info(f"Registered user '{username}' with role '{role}'")
         return token
 
@@ -97,3 +105,15 @@ class Authenticator:
             return True
         logger.info("Logout called with unknown token")
         return False
+
+    def validate(self, token: str, role: str | None = None) -> tuple[str, str]:
+        """
+        Validate that a session token exists (and optionally matches the expected role).
+        Returns (username, role) on success; raises ValueError on failure.
+        """
+        key = self.token_index.get(token)
+        if not key:
+            raise ValueError("invalid token")
+        if role and key[1] != role:
+            raise ValueError("invalid token role")
+        return key

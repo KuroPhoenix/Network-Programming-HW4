@@ -15,9 +15,21 @@ LOBBY_OPTIONS = [
     ("List rooms", "list_rooms"),
     ("Create room", "create_room"),
     ("Join room", "join_room"),
-    ("Leave room", "leave_room"),
     ("Back to main menu", "back"),
 ]
+
+ROOM_OPTIONS = [
+    ("Start game", "start_game"),
+    ("Leave room", "leave_room"),
+    ("Invite other players", "invite_other_players"),
+]
+
+def show_room_menu():
+    print("=== Room Menu ===")
+    for idx, (label, _) in enumerate(ROOM_OPTIONS, 1):
+        print(f"{idx}. {label}")
+    choice = read_choice(1, len(ROOM_OPTIONS))
+    return ROOM_OPTIONS[choice - 1][1]
 
 def show_authed_menu():
     print("=== Main Menu ===")

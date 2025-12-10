@@ -10,7 +10,7 @@ def list_rooms(genie: RoomGenie) -> dict:
 def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
     username = payload.get("username", "")
     game_name = payload.get("game_name", "")
-    room_name = payload.get("room_name") or game_name
+    room_name = payload.get("room_name")
     if not username or not game_name:
         raise ValueError("username and game_name required")
     game = gmgr.get_game(game_name)

@@ -5,16 +5,17 @@ from server.core.auth import Authenticator
 from server.core.game_manager import GameManager
 from server.core.storage_manager import StorageManager
 from server.core.handlers.auth_handler import register_player, login_player, logout_player
-from server.core.handlers.game_handler import list_game, detail_game, download_begin, download_chunk, download_end
+from server.core.handlers.game_handler import list_game, detail_game, download_begin, download_chunk, download_end, report_game, start_game
 from server.core.handlers.lobby_handler import list_rooms, create_room, join_room, leave_room
 from server.core.protocol import ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_LIST_GAME, ACCOUNT_LOGOUT_PLAYER, \
     GAME_GET_DETAILS, GAME_DOWNLOAD_BEGIN, GAME_DOWNLOAD_CHUNK, GAME_DOWNLOAD_END, LOBBY_LIST_ROOMS, \
-    LOBBY_CREATE_ROOM, LOBBY_JOIN_ROOM, LOBBY_LEAVE_ROOM
+    LOBBY_CREATE_ROOM, LOBBY_JOIN_ROOM, LOBBY_LEAVE_ROOM, GAME_REPORT, GAME_START
 from server.util.net import create_listener, recv_json_lines, send_json, serve
+from server.util.validator import require_token
 import user.config.user_config as cfg
 from server.core.protocol import Message, message_to_dict
 from server.core.room_genie import RoomGenie
-
+from server.core.game_launcher import GameLauncher
 
 class user_server:
     def __init__(self):
@@ -29,7 +30,8 @@ class user_server:
         self.auth = Authenticator()
         self.gmgr = GameManager()
         self.smgr = StorageManager()
-        self.lobby = RoomGenie()
+        self.genie = RoomGenie()
+        self.gmLauncher = GameLauncher()
 
     def start_server(self):
         """
@@ -51,11 +53,15 @@ class user_server:
             GAME_DOWNLOAD_BEGIN: lambda p: download_begin(p, self.gmgr, self.smgr),
             GAME_DOWNLOAD_CHUNK: lambda p: download_chunk(p, self.smgr),
             GAME_DOWNLOAD_END: lambda p: download_end(p, self.smgr),
-            LOBBY_LIST_ROOMS: lambda p: list_rooms(self.lobby),
-            LOBBY_CREATE_ROOM: lambda p: create_room(p, self.gmgr, self.lobby),
-            LOBBY_JOIN_ROOM: lambda p: join_room(p, self.lobby),
-            LOBBY_LEAVE_ROOM: lambda p: leave_room(p, self.lobby),
+            LOBBY_LIST_ROOMS: lambda p: list_rooms(self.genie),
+            LOBBY_CREATE_ROOM: lambda p: create_room(p, self.gmgr, self.genie),
+            LOBBY_JOIN_ROOM: lambda p: join_room(p, self.genie),
+            LOBBY_LEAVE_ROOM: lambda p: leave_room(p, self.genie),
+            GAME_REPORT: lambda p: report_game(p, self.genie, self.gmLauncher),
+            GAME_START: lambda p: start_game(p, self.gmLauncher, self.genie),
+
         }
+        no_auth_types = {ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_REPORT}
         with (conn):
             for msg in recv_json_lines(conn):
                 mtype = msg.get("type")
@@ -65,6 +71,8 @@ class user_server:
                     if not handler:
                         reply = Message(type=mtype or "", status="error", code=100, message="UNKNOWN_TYPE")
                     else:
+                        if mtype not in no_auth_types:
+                            require_token(self.auth, msg.get("token"), role="player")
                         data = handler(payload)
                         reply = Message(
                             type=mtype or "",
@@ -87,4 +95,3 @@ class user_server:
 if __name__ == "__main__":
     server = user_server()
     server.start_server()
-

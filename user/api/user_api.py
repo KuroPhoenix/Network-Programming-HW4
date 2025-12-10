@@ -1,8 +1,13 @@
 import base64
+import json, shlex, os
+import subprocess
+from pathlib import Path
 from typing import Any
 
 import user.config.user_config as cfg
 from shared.net import connect_to_server, send_request
+from user.config.user_config import manifest_base_path
+from user.launcher.user_launcher import launch_client_game
 from user.utils.download_wizard import DownloadWizard
 from server.core.protocol import (
     ACCOUNT_LOGIN_PLAYER,
@@ -14,6 +19,8 @@ from server.core.protocol import (
     GAME_DOWNLOAD_BEGIN,
     GAME_DOWNLOAD_CHUNK,
     GAME_DOWNLOAD_END,
+    GAME_REPORT,
+    GAME_START,
     LOBBY_LIST_ROOMS,
     LOBBY_CREATE_ROOM,
     LOBBY_JOIN_ROOM,
@@ -67,9 +74,7 @@ class UserClient:
         return send_request(self.conn, self.file, self.token, LOBBY_LIST_ROOMS, {})
 
     def create_room(self, username: str, game_name: str, room_name: str | None = None):
-        payload = {"username": username, "game_name": game_name}
-        if room_name:
-            payload["room_name"] = room_name
+        payload = {"username": username, "game_name": game_name, "room_name": room_name}
         return send_request(self.conn, self.file, self.token, LOBBY_CREATE_ROOM, payload)
 
     def join_room(self, username: str, room_id: int, spectator: bool = False):
@@ -79,6 +84,44 @@ class UserClient:
     def leave_room(self, username: str, room_id: int):
         payload = {"username": username, "room_id": room_id}
         return send_request(self.conn, self.file, self.token, LOBBY_LEAVE_ROOM, payload)
+
+    def start_game(self, room_id, username: str = ""):
+        """
+        Ask the server to start the room and then launch the local game client using the downloaded manifest.
+        """
+        payload = {"room_id": room_id}
+        resp = send_request(self.conn, self.file, self.token, GAME_START, payload)
+        if resp.status != "ok":
+            return resp
+        launch = resp.payload["launch"] or {}
+        # Expect server to return host/port/token/game_name/version
+        host = cfg.HOST_IP
+        port = launch.get("port")
+        token = launch.get("token")
+        game_name = launch.get("game_name") or (launch.get("metadata") or {}).get("game_name")
+        version = launch.get("version") or (launch.get("metadata") or {}).get("version")
+        if not all([port, token, game_name, version]):
+            raise ValueError("GAME_START missing launch details (host/port/token/game/version)")
+
+        # Resolve manifest path from local downloads
+        manifest_path = Path(cfg.manifest_base_path) / str(game_name) / str(version) / "manifest.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Manifest not found at {manifest_path}")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        client_cfg = manifest["client"]
+
+        ctx = {
+            "host": host,
+            "port": port,
+            "token": token,
+            "player_name": username or (launch.get("player") or ""),
+        }
+        cmd = shlex.split(client_cfg["command"].format(**ctx))
+        workdir = (manifest_path.parent / client_cfg.get("working_dir", ".")).resolve()
+        env = os.environ.copy()
+        env.update({k: str(v).format(**ctx) for k, v in client_cfg.get("env", {}).items()})
+        subprocess.Popen(cmd, cwd=workdir, env=env)
+        return resp
 
     def download_game(self, username: str, game_name: str):
         if not game_name:
@@ -118,6 +161,7 @@ class UserClient:
 
         dwzd.finalise_download(download_id)
         send_request(self.conn, self.file, self.token, GAME_DOWNLOAD_END, {"download_id": download_id})
+
 
 def get_client() -> UserClient:
     return UserClient()

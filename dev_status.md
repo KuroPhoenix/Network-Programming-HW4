@@ -1,0 +1,32 @@
+ Right now RoomGenie.start_game isn’t wired correctly:
+                                                                                                                                                                                                         
+  - It allocates a port from PortAllocator but never uses or stores it in the room, and doesn’t pass it to GameLauncher. The launcher in turn allocates its own port internally, so you end up with two  
+    unrelated allocators and no record of which port/token the room actually uses.                                                                                                                       
+  - It ignores the LaunchResult: doesn’t store the PID/port/token on the room, doesn’t mark status transitions after launch, and never stops/releases.                                                   
+  - There’s no completion signal path: the genie never learns when the game ends (no wait/poll on the child process, no callback/report from the game server), so it can’t flip room status or release   
+    resources.                                                                                                                                                                                           
+                                                                                                                                                                                                         
+  To fix for Stage 6/7:                                                                                                                                                                                  
+                                                                                                                                                                                                         
+  1. Pick a single allocator (either the PortAllocator you pass in or the launcher’s internal one). If you keep the external allocator, change GameLauncher.launch_room to accept a port and not allocate
+     its own; otherwise drop PortAllocator from start_game and use the launcher’s port, and record it on the room.                                                                                       
+  2. Capture the launch result:                                                                                                                                                                          
+                                                                                                                                                                                                         
+  res = gmLauncher.launch_room(room_id, room.host, room.metadata, room.players, port=port)                                                                                                               
+  room.port = res.port                                                                                                                                                                                   
+  room.server_pid = res.proc.pid                                                                                                                                                                         
+  room.token = res.token                                                                                                                                                                                 
+  room.status = "IN_GAME"                                                                                                                                                                                
+                                                                                                                                                                                                         
+  Store the launch in a registry so joins can hand back host/port/token to players.                                                                                                                      
+                                                                                                                                                                                                         
+  3. Add a completion hook. Two common patterns:                                                                                                                                                         
+                                                                                                                                                                                                         
+  - Wait on the process in a background thread: threading.Thread(target=self._watch_process, args=(room_id, res.proc, port_allocator), daemon=True).start(), and in _watch_process do proc.wait(), then  
+    mark the room finished/idle and release the port/kill the room.                                                                                                                                      
+  - Or have the game server POST/report back “game_finished” and call stop_room/cleanup when you receive it.                                                                                             
+                                                                                                                                                                                                         
+  4. Implement cleanup: on game end or room deletion, call GameLauncher.stop_room(room_id) and port_allocator.release(room.port) (if you used an external allocator), reset room status/remove the room, 
+     and free any tokens/registry entries.                                                                                                                                                               
+                                                                                                                                                                                                         
+  Until you do this, room start logic is incomplete and the genie has no way to know the game has finished. 

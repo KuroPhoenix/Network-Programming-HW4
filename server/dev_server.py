@@ -9,6 +9,7 @@ from server.core.protocol import ACCOUNT_REGISTER_DEVELOPER, ACCOUNT_LOGIN_DEVEL
     GAME_LIST_GAME, GAME_UPLOAD_METADATA, ACCOUNT_LOGOUT_DEVELOPER, GAME_UPLOAD_END, GAME_UPLOAD_BEGIN, GAME_UPLOAD_CHUNK
 from server.core.storage_manager import StorageManager
 from server.util.net import create_listener, recv_json_lines, send_json, serve
+from server.util.validator import require_token
 import developer.dev_config.dev_config as cfg
 class DevServer:
     def __init__(self):
@@ -55,6 +56,8 @@ class DevServer:
                     if not handler:
                         reply = Message(type=mtype or "", status="error", code=100, message="UNKNOWN_TYPE")
                     else:
+                        if mtype not in {ACCOUNT_REGISTER_DEVELOPER, ACCOUNT_LOGIN_DEVELOPER}:
+                            require_token(self.auth, msg.get("token"), role="developer")
                         data = handler(payload)
                         reply = Message(
                             type=mtype or "",
@@ -77,4 +80,3 @@ class DevServer:
 if __name__ == "__main__":
     server = DevServer()
     server.start_server()
-

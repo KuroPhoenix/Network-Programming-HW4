@@ -4,6 +4,11 @@ import bcrypt
 import secrets
 import json
 from loguru import logger
+
+# Module-specific error logging
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+logger.add(LOG_DIR / "game_manager_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "game_manager.py")
 show_entries = "author, game_name, version, type, description, max_players, game_folder"
 class GameManager:
     def __init__(self):

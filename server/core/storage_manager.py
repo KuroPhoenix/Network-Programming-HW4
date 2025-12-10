@@ -7,6 +7,12 @@ from dataclasses import dataclass, field
 
 from server.core.game_manager import GameManager
 from loguru import logger
+
+# Module-specific logging
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+logger.add(LOG_DIR / "storage_manager.log", rotation="1 MB", level="INFO", filter=lambda r: r["file"] == "storage_manager.py")
+logger.add(LOG_DIR / "storage_manager_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "storage_manager.py")
 @dataclass
 class UploadSession(order=True):
     file_obj: any
@@ -28,8 +34,6 @@ class DownloadSession(order=True):
 REQUIRED = ["game_name", "version", "type", "max_players", "description", "server", "client"]
 class StorageManager:
     def __init__(self):
-        logger.remove()
-        logger.add("storage_manager.log", rotation="1 MB", level="INFO", mode="w")
         self.base = Path(__file__).resolve().parent.parent / "cloudGames"
         self.base.mkdir(parents=True, exist_ok=True)
         self.tmpdir = Path(__file__).resolve().parent.parent / "cloudGames" / "tmp"

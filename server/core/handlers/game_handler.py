@@ -1,7 +1,53 @@
 from base64 import b64decode, b64encode
 from server.core.game_manager import GameManager
 from server.core.storage_manager import StorageManager
+from server.core.game_launcher import GameLauncher
+from server.core.room_genie import RoomGenie
 
+
+def report_game(payload: dict, genie: RoomGenie, gmLauncher: GameLauncher):
+    """
+    Receives game status updates from game servers and forwards to RoomGenie.
+    Expected payload:
+      status: RUNNING | END | ERROR
+      room_id: int
+      winner/loser: usernames (for END)
+      err_msg/reason: strings (for ERROR/INFO)
+    """
+    status = (payload.get("status") or "").upper()
+    room_id = payload.get("room_id") or payload.get("room")
+    if room_id is None:
+        raise ValueError("room_id required")
+    # Verify report_token against room
+    try:
+        room = genie._get_room(int(room_id))
+    except Exception as e:
+        return {"status": "error", "code": 103, "message": str(e)}
+    report_token = payload.get("report_token")
+    if report_token and room.token and report_token != room.token:
+        return {"status": "error", "code": 101, "message": "invalid report token"}
+
+    if status == "RUNNING":
+        return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
+    if status == "END":
+        genie.game_ended_normally(payload.get("winner", ""), payload.get("loser", ""), int(room_id), gmLauncher)
+        return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
+    if status == "ERROR":
+        err_msg = payload.get("err_msg") or payload.get("reason") or "unknown error"
+        genie.game_ended_with_error(err_msg, int(room_id), gmLauncher)
+        return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status, "err_msg": err_msg}}
+    return {"status": "error", "code": 100, "message": "UNKNOWN_STATUS"}
+
+def start_game(payload: dict, gmLauncher: GameLauncher, genie: RoomGenie) -> dict:
+    """
+    From room Genie: def start_game(self, room_id: int, gmLauncher: GameLauncher):
+    :param gmLauncher:
+    :param payload:
+    :param genie:
+    :return:
+    """
+    start_session_info = genie.start_game(payload["room_id"], gmLauncher)
+    return {"status": "ok", "code": 0, "payload": start_session_info}
 
 def list_game(payload: dict, mgr: GameManager):
     """
