@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from loguru import logger
-from user.config.user_config import HOST_IP, HOST_PORT
+from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
 
 # Module-specific logging
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
@@ -70,8 +70,8 @@ class GameLauncher:
             "player_name": players[0] if players else "",
             "p1": players[0] if len(players) > 0 else "",
             "p2": players[1] if len(players) > 1 else "",
-            "report_host": HOST_IP,
-            "report_port": HOST_PORT,
+            "report_host": USER_SERVER_HOST,
+            "report_port": USER_SERVER_HOST_PORT,
             "report_token": token,
         }
 

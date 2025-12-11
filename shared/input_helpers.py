@@ -71,3 +71,29 @@ def dev_upload_game() -> dict:
         "description": description,
         "max_players": max_players,
     }
+
+def user_review() -> dict:
+    while True:
+        score = input("Enter review score (1~5): ").strip()
+        if not score:
+            print("Please enter a review score.")
+            continue
+        if not score.isdigit():
+            print("Please enter a valid review score (1~5).")
+            continue
+        if int(score) > 5 or int(score) < 1:
+            print("Please enter a valid review score (1~5).")
+            continue
+        break
+    while True:
+        raw = input("Enter review details (\"==\" not accepted.) : ").strip()
+        if not raw:
+            print("Please enter review details.")
+            continue
+        if "==" in raw:
+            print("Please enter a valid review.")
+            continue
+        break
+    return {"score": int(score), "content": raw}
+
+

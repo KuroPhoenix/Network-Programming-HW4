@@ -1,9 +1,16 @@
+from server.core.protocol import REVIEW_ADD
 from shared.input_helpers import read_choice
 
 MAIN_OPTIONS = [
-    ("Visit Store", "visit_store"),
-    ("Lobby", "visit_lobby"),
+    ("Visit Store to download games", "visit_store"),
+    ("Visit Lobby to play games", "visit_lobby"),
+    ("View my reviews", "visit_review"),
     ("Logout", "logout"),
+]
+REVIEW_DETAIL_OPTIONS = [
+    ("Delete this review", "delete_review"),
+    ("Edit this review", "edit_review"),
+    ("Go Back", "back"),
 ]
 STORE_OPTIONS = [
     ("Next page", "next"),
@@ -21,8 +28,44 @@ LOBBY_OPTIONS = [
 ROOM_OPTIONS = [
     ("Start game", "start_game"),
     ("Leave room", "leave_room"),
-    ("Invite other players", "invite_other_players"),
 ]
+
+GAME_OPTIONS = [
+    ("View game details", "view_game_details"),
+    ("View game reviews", "view_game_reviews"),
+    ("Download game", "download_game"),
+    ("Give this game a review", "review_game"),
+    ("Go back", "back"),
+]
+
+def show_review_menu(sub_catalogue: list[dict]):
+    options: list[tuple[str, str | tuple[str, int]]] = []
+    for idx, entry in enumerate(sub_catalogue, 1):
+        game_name = entry.get("game_name", f"Game {idx}")
+        content = entry.get("content", f"Review content: {idx}")
+        options.append((f"{game_name} | {content}", ("select", idx - 1)))  # idx-1 is index into the slice
+    options.append(("Back", "back"))
+
+    print("=== Your Reviews ===")
+    print("Select one review to edit or delete.")
+    for idx, (label, _) in enumerate(options, 1):
+        print(f"{idx}. {label}")
+    choice = read_choice(1, len(options))
+    return options[choice - 1][1]
+
+def show_review_detail_menu():
+    print("=== Review Details Menu ===")
+    for idx, (label, _) in enumerate(REVIEW_DETAIL_OPTIONS, 1):
+        print(f"{idx}. {label}")
+    choice = read_choice(1, len(REVIEW_DETAIL_OPTIONS))
+    return REVIEW_DETAIL_OPTIONS[choice - 1][1]
+
+def show_game_menu():
+    print("=== Game Menu ===")
+    for idx, (label, _) in enumerate(GAME_OPTIONS, 1):
+        print(f"{idx}. {label}")
+    choice = read_choice(1, len(GAME_OPTIONS))
+    return GAME_OPTIONS[choice - 1][1]
 
 def show_room_menu():
     print("=== Room Menu ===")
@@ -75,6 +118,12 @@ def show_game_detail(rows):
             print(f"Description: {row.get('description')}")
         if "version" in row:
             print(f"Version: {row.get('version')}")
+        if "avg_score" in row:
+            score = row.get("avg_score")
+            if score is not None and score > 0:
+                print(f"Average score: {score}")
+            else:
+                print("No average score available. (No reviews for this game).")
         print("*" * 20)
 
 

@@ -3,16 +3,18 @@ import threading
 from loguru import logger
 from server.core.auth import Authenticator
 from server.core.game_manager import GameManager
+from server.core.review_manager import ReviewManager
 from server.core.storage_manager import StorageManager
 from server.core.handlers.auth_handler import register_player, login_player, logout_player
+from server.core.handlers.review_handler import list_review_game, list_review_author, delete_review, add_review, edit_review
 from server.core.handlers.game_handler import list_game, detail_game, download_begin, download_chunk, download_end, report_game, start_game
 from server.core.handlers.lobby_handler import list_rooms, create_room, join_room, leave_room
 from server.core.protocol import ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_LIST_GAME, ACCOUNT_LOGOUT_PLAYER, \
     GAME_GET_DETAILS, GAME_DOWNLOAD_BEGIN, GAME_DOWNLOAD_CHUNK, GAME_DOWNLOAD_END, LOBBY_LIST_ROOMS, \
-    LOBBY_CREATE_ROOM, LOBBY_JOIN_ROOM, LOBBY_LEAVE_ROOM, GAME_REPORT, GAME_START
+    LOBBY_CREATE_ROOM, LOBBY_JOIN_ROOM, LOBBY_LEAVE_ROOM, GAME_REPORT, GAME_START, REVIEW_SEARCH_AUTHOR, REVIEW_DELETE, REVIEW_EDIT, REVIEW_SEARCH_GAME, REVIEW_ADD
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 from server.util.validator import require_token
-import user.config.user_config as cfg
+from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
 from server.core.protocol import Message, message_to_dict
 from server.core.room_genie import RoomGenie
 from server.core.game_launcher import GameLauncher
@@ -23,8 +25,8 @@ class user_server:
         # importing cfg file
         logger.remove()
         logger.add("user_server.log", rotation="1 MB", level="INFO", mode="w")
-        self.host = cfg.HOST_IP
-        self.port = cfg.HOST_PORT
+        self.host = USER_SERVER_HOST
+        self.port = USER_SERVER_HOST_PORT
 
         # setting up auth + game/storage managers
         self.auth = Authenticator()
@@ -32,7 +34,7 @@ class user_server:
         self.smgr = StorageManager()
         self.genie = RoomGenie()
         self.gmLauncher = GameLauncher()
-
+        self.reviewMgr = ReviewManager()
     def start_server(self):
         """
         Start the user server and listen for incoming connections, then accepts connections.
@@ -59,6 +61,11 @@ class user_server:
             LOBBY_LEAVE_ROOM: lambda p: leave_room(p, self.genie),
             GAME_REPORT: lambda p: report_game(p, self.genie, self.gmLauncher),
             GAME_START: lambda p: start_game(p, self.gmLauncher, self.genie),
+            REVIEW_SEARCH_GAME: lambda p: list_review_game(p, self.reviewMgr),
+            REVIEW_EDIT: lambda p: edit_review(p, self.reviewMgr, self.gmgr),
+            REVIEW_DELETE: lambda p: delete_review(p, self.reviewMgr, self.gmgr),
+            REVIEW_ADD: lambda p: add_review(p, self.reviewMgr, self.gmgr),
+            REVIEW_SEARCH_AUTHOR: lambda p: list_review_author(p, self.reviewMgr),
 
         }
         no_auth_types = {ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_REPORT}

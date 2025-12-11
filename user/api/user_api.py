@@ -4,10 +4,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import user.config.user_config as cfg
+from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
 from shared.net import connect_to_server, send_request
-from user.config.user_config import manifest_base_path
-from user.launcher.user_launcher import launch_client_game
 from user.utils.download_wizard import DownloadWizard
 from server.core.protocol import (
     ACCOUNT_LOGIN_PLAYER,
@@ -24,7 +22,7 @@ from server.core.protocol import (
     LOBBY_LIST_ROOMS,
     LOBBY_CREATE_ROOM,
     LOBBY_JOIN_ROOM,
-    LOBBY_LEAVE_ROOM,
+    LOBBY_LEAVE_ROOM, REVIEW_SEARCH_AUTHOR, REVIEW_SEARCH_GAME, REVIEW_DELETE, REVIEW_ADD, REVIEW_EDIT,
 )
 
 
@@ -35,8 +33,8 @@ class UserClient:
     """
 
     def __init__(self, host: str | None = None, port: int | None = None):
-        self.host = host or cfg.HOST_IP
-        self.port = port or cfg.HOST_PORT
+        self.host = host or USER_SERVER_HOST
+        self.port = port or USER_SERVER_HOST_PORT
         self.token: str | None = None
         self.conn, self.file = connect_to_server(self.host, self.port)
 
@@ -84,6 +82,32 @@ class UserClient:
     def leave_room(self, username: str, room_id: int):
         payload = {"username": username, "room_id": room_id}
         return send_request(self.conn, self.file, self.token, LOBBY_LEAVE_ROOM, payload)
+
+    def list_author_review(self, author: str):
+        payload = {"author": author}
+        return send_request(self.conn, self.file, self.token, REVIEW_SEARCH_AUTHOR, payload)
+
+    def list_game_review(self, game_name: str):
+        payload = {"game_name": game_name}
+        return send_request(self.conn, self.file, self.token, REVIEW_SEARCH_GAME, payload)
+
+    def delete_review(self, author: str, game_name: str, content: str):
+        payload = {"author": author, "game_name": game_name, "content": content}
+        return send_request(self.conn, self.file, self.token, REVIEW_DELETE, payload)
+
+    def add_review(self, author: str, game_name: str, content: str, score: int):
+        payload = {"author": author, "game_name": game_name, "content": content, "score": score}
+        return send_request(self.conn, self.file, self.token, REVIEW_ADD, payload)
+
+    def edit_review(self, author, game_name, old_content: str, new_content: str, score: int):
+        payload = {
+            "author": author,
+            "game_name": game_name,
+            "old_content": old_content,
+            "new_content": new_content,
+            "score": score,
+        }
+        return send_request(self.conn, self.file, self.token, REVIEW_EDIT, payload)
 
     def start_game(self, room_id, username: str = ""):
         """

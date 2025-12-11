@@ -6,7 +6,7 @@ from loguru import logger
 from typing import Any
 
 from shared.net import connect_to_server, send_request
-from developer.dev_config.dev_config import HOST_IP, HOST_PORT
+from server.core.config import DEV_SERVER_HOST_IP, DEV_SERVER_HOST_PORT
 from server.core.protocol import (
     ACCOUNT_LOGIN_DEVELOPER,
     ACCOUNT_REGISTER_DEVELOPER,
@@ -27,8 +27,8 @@ class DevClient:
     def __init__(self, host: str | None = None, port: int | None = None):
         logger.remove()
         logger.add("dev_client.log", rotation="1 MB", level="INFO")
-        self.host = host or HOST_IP
-        self.port = port or HOST_PORT
+        self.host = host or DEV_SERVER_HOST_IP
+        self.port = port or DEV_SERVER_HOST_PORT
         self.token: str | None = None
         self.conn, self.file = connect_to_server(self.host, self.port)
 

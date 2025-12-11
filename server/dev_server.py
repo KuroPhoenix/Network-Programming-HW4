@@ -10,7 +10,7 @@ from server.core.protocol import ACCOUNT_REGISTER_DEVELOPER, ACCOUNT_LOGIN_DEVEL
 from server.core.storage_manager import StorageManager
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 from server.util.validator import require_token
-import developer.dev_config.dev_config as cfg
+import server.core.config as cfg
 class DevServer:
     def __init__(self):
 
@@ -18,8 +18,8 @@ class DevServer:
         logger.remove()
         logger.add("dev_server.log", rotation="1 MB", level="INFO", mode="w")
 
-        self.host = cfg.HOST_IP
-        self.port = cfg.HOST_PORT
+        self.host = cfg.DEV_SERVER_HOST_IP
+        self.port = cfg.DEV_SERVER_HOST_PORT
 
         # setting up modules
         self.auth = Authenticator()
