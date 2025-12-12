@@ -80,20 +80,28 @@ class RoomGenie:
     def _watch_room(self, room_id, launcher, interval=0.5):
         try:
             while True:
-                res = launcher.describe(room_id)
-                proc = res.proc if res else None
+                try:
+                    res = launcher.describe(room_id)
+                    proc = res.proc if res else None
+                except Exception as e:
+                    logger.exception(f"room watcher describe failed for room {room_id}: {e}")
+                    break
                 if not proc:
                     break
-                if proc.poll() is not None:  # exited
-                    code = proc.returncode
-                    with self.lock:
-                        room = self.rooms.get(room_id)
-                        if room:
-                            room.status = "WAITING"
-                            room.port = None
-                            room.token = None
-                            room.server_pid = None
-                    launcher.stop_room(room_id)
+                try:
+                    if proc.poll() is not None:  # exited
+                        code = proc.returncode
+                        with self.lock:
+                            room = self.rooms.get(room_id)
+                            if room:
+                                room.status = "WAITING"
+                                room.port = None
+                                room.token = None
+                                room.server_pid = None
+                        launcher.stop_room(room_id)
+                        break
+                except Exception as e:
+                    logger.exception(f"room watcher poll failed for room {room_id}: {e}")
                     break
                 time.sleep(interval)
         finally:

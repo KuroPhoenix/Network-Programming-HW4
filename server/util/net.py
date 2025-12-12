@@ -27,7 +27,11 @@ def recv_json_lines(conn):
     """
     with conn.makefile("r") as f:
         for line in f:
-            yield json.loads(line)
+            try:
+                yield json.loads(line)
+            except Exception as e:
+                logger.warning(f"failed to parse JSON line; closing connection: {e}")
+                break
 
 
 def send_json(conn, obj):
@@ -37,7 +41,10 @@ def send_json(conn, obj):
     :param obj:
     :return:
     """
-    conn.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+    try:
+        conn.sendall((json.dumps(obj) + "\n").encode("utf-8"))
+    except Exception as e:
+        logger.warning(f"failed to send JSON; closing connection soon: {e}")
 
 
 def serve(sock: socket.socket, handler):
@@ -48,5 +55,9 @@ def serve(sock: socket.socket, handler):
     :return:
     """
     while True:
-        conn, addr = sock.accept()
+        try:
+            conn, addr = sock.accept()
+        except Exception as e:
+            logger.error(f"accept failed: {e}")
+            continue
         threading.Thread(target=handler, args=(conn, addr), daemon=True).start()

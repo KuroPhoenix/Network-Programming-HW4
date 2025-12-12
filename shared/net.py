@@ -21,7 +21,11 @@ def recv_message(file_obj) -> dict[str, Any]:
     line = file_obj.readline()
     if not line:
         raise ConnectionError("Server closed connection")
-    return json.loads(line)
+    try:
+        return json.loads(line)
+    except Exception as e:
+        logger.warning(f"Failed to parse message from server: {e}")
+        raise
 
 
 def send_request(sock: socket.socket, file_obj, token: str | None, mtype: str, payload: dict[str, Any],
@@ -30,7 +34,6 @@ def send_request(sock: socket.socket, file_obj, token: str | None, mtype: str, p
     send_message(sock, message_to_dict(msg))
     raw = recv_message(file_obj)
     return message_from_dict(raw)
-
 
 
 

@@ -44,40 +44,41 @@ def main():
                     print(f"Error [{resp.code}]: {resp.message}")
 #============================MAIN MENU===========================================
             while auth_status and running:
+                try:
 #==============================REVIEW_MENU=======================================
-                action = show_authed_menu()
-                if action == "visit_review":
-                    while auth_status and running:
-                        resp = client.list_author_review(username)
-                        if resp.status != "ok":
-                            print(f"Error [{resp.code}]: {resp.message}")
-                        else:
-                            reviews = resp.payload.get("reviews", [])
-                            action = show_review_menu(reviews)
-                            if action == "back":
-                                break
-                            if isinstance(action, tuple) and action[0] == "select":
-                                selected = reviews[action[1]]
-                                while True:
-                                    action = show_review_detail_menu()
-                                    if action == "delete_review":
-                                        resp = client.delete_review(username, selected.get("game_name"), selected.get("content"), selected.get("version"),)
-                                        if resp.status != "ok":
-                                            print(f"Error [{resp.code}]: {resp.message}")
-                                        else:
-                                            print("Review successfully deleted.")
-                                    if action == "edit_review":
-                                        new_review = user_review()
-                                        resp = client.edit_review(username,selected.get("game_name"),selected.get("content"),new_review.get("content"),new_review.get("score"),selected.get("version"),)
-                                        if resp.status != "ok":
-                                            print(f"Error [{resp.code}]: {resp.message}")
-                                        else:
-                                            print("Review successfully edited.")
-                                    if action == "back":
-                                        break
+                    action = show_authed_menu()
+                    if action == "visit_review":
+                        while auth_status and running:
+                            resp = client.list_author_review(username)
+                            if resp.status != "ok":
+                                print(f"Error [{resp.code}]: {resp.message}")
+                            else:
+                                reviews = resp.payload.get("reviews", [])
+                                action = show_review_menu(reviews)
+                                if action == "back":
+                                    break
+                                if isinstance(action, tuple) and action[0] == "select":
+                                    selected = reviews[action[1]]
+                                    while True:
+                                        action = show_review_detail_menu()
+                                        if action == "delete_review":
+                                            resp = client.delete_review(username, selected.get("game_name"), selected.get("content"), selected.get("version"),)
+                                            if resp.status != "ok":
+                                                print(f"Error [{resp.code}]: {resp.message}")
+                                            else:
+                                                print("Review successfully deleted.")
+                                        if action == "edit_review":
+                                            new_review = user_review()
+                                            resp = client.edit_review(username,selected.get("game_name"),selected.get("content"),new_review.get("content"),new_review.get("score"),selected.get("version"),)
+                                            if resp.status != "ok":
+                                                print(f"Error [{resp.code}]: {resp.message}")
+                                            else:
+                                                print("Review successfully edited.")
+                                        if action == "back":
+                                            break
 
 #=============================STORE PAGE=====================================================
-                if action == "visit_store":
+                    if action == "visit_store":
                     page_start = 0
                     while True:
                         resp = client.list_games()
@@ -150,7 +151,7 @@ def main():
                         elif action == "back":
                             break
 
-                if action == "visit_lobby":
+                    if action == "visit_lobby":
 #===============================================LOBBY MENU==============================================================
                     in_room = False
                     curr_room_id = 0
@@ -223,13 +224,15 @@ def main():
                                     print("Launched local game client for this room.")
                                 else:
                                     print(f"Error [{resp.code}]: {resp.message}")
-                if action == "logout":
-                    resp = client.logout()
-                    if resp.status == "ok":
-                        auth_status = False
-                        print(f"{username} logged out successfully.\n")
-                    else:
-                        print(f"Error [{resp.code}]: {resp.message}")
+                    if action == "logout":
+                        resp = client.logout()
+                        if resp.status == "ok":
+                            auth_status = False
+                            print(f"{username} logged out successfully.\n")
+                        else:
+                            print(f"Error [{resp.code}]: {resp.message}")
+                except Exception as e:
+                    print(f"Operation failed: {e}")
     except KeyboardInterrupt:
         if auth_status:
             try:

@@ -433,6 +433,8 @@ def main():
     try:
         srv.start()
     except KeyboardInterrupt:
+        srv.running = False
+        srv._report_status("ERROR", err_msg="interrupted")
         print("\n[server] interrupted")
         sys.exit(0)
 

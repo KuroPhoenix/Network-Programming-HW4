@@ -154,7 +154,10 @@ class UserClient:
         workdir = (manifest_path.parent / client_cfg.get("working_dir", ".")).resolve()
         env = os.environ.copy()
         env.update({k: str(v).format(**ctx) for k, v in client_cfg.get("env", {}).items()})
-        subprocess.Popen(cmd, cwd=workdir, env=env)
+        try:
+            subprocess.Popen(cmd, cwd=workdir, env=env)
+        except Exception as e:
+            raise RuntimeError(f"Failed to launch local client: {e}")
 
     def start_game(self, room_id, game_name: str, username: str = "", ):
         """

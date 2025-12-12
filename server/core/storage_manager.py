@@ -94,25 +94,33 @@ class StorageManager:
         if not sess:
             raise ValueError("unknown upload_id")
         sess.file_obj.close()
-        manifest, stage_dir = self._verify_upload(upload_id)
+        try:
+            manifest, stage_dir = self._verify_upload(upload_id)
 
-        game_name = manifest["game_name"]
-        version = str(manifest["version"])
-        if Path(game_name).is_absolute() or ".." in Path(game_name).parts:
-            raise ValueError("game_name unsafe")
-        if Path(version).is_absolute() or ".." in Path(version).parts:
-            raise ValueError("version unsafe")
+            game_name = manifest["game_name"]
+            version = str(manifest["version"])
+            if Path(game_name).is_absolute() or ".." in Path(game_name).parts:
+                raise ValueError("game_name unsafe")
+            if Path(version).is_absolute() or ".." in Path(version).parts:
+                raise ValueError("version unsafe")
 
-        final_dir = self.base / game_name / version
-        if final_dir.exists():
-            raise ValueError("target version already exists")
-        final_dir.parent.mkdir(parents=True, exist_ok=True)
-        stage_dir.rename(final_dir)
-
-        shutil.rmtree(sess.tmp_dir, ignore_errors=True)
-        self.uploadID_to_info.pop(upload_id, None)
-        self.uploadID_to_metadata.pop(upload_id, None)
-        return {"path": str(final_dir), "manifest": manifest}
+            final_dir = self.base / game_name / version
+            if final_dir.exists():
+                raise ValueError("target version already exists")
+            final_dir.parent.mkdir(parents=True, exist_ok=True)
+            stage_dir.rename(final_dir)
+            return {"path": str(final_dir), "manifest": manifest}
+        except Exception as e:
+            shutil.rmtree(sess.tmp_dir, ignore_errors=True)
+            self.uploadID_to_info.pop(upload_id, None)
+            self.uploadID_to_metadata.pop(upload_id, None)
+            logger.warning(f"finalise_upload failed for {upload_id}: {e}")
+            raise
+        finally:
+            # Clean up on success too
+            shutil.rmtree(sess.tmp_dir, ignore_errors=True)
+            self.uploadID_to_info.pop(upload_id, None)
+            self.uploadID_to_metadata.pop(upload_id, None)
 
     def _verify_upload(self, upload_id: str):
         sess = self.uploadID_to_info.get(upload_id)

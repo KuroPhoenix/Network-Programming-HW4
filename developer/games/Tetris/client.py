@@ -133,6 +133,14 @@ def main():
                 print(f"Error: {msg.get('message')}")
             else:
                 pass
+    except KeyboardInterrupt:
+        if not args.spectator:
+            try:
+                send_json(conn, {"type": "cmd", "cmd": "QUIT"})
+                time.sleep(0.1)
+            except Exception:
+                pass
+        print("\nExiting game...")
     finally:
         try:
             conn.shutdown(socket.SHUT_RDWR)
@@ -142,7 +150,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        sys.exit(0)
+    main()

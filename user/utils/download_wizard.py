@@ -76,24 +76,30 @@ class DownloadWizard:
         if not sess:
             raise ValueError("unknown download_id")
         sess.file_obj.close()
-        manifest, stage_dir = self._verify_download(download_id)
+        try:
+            manifest, stage_dir = self._verify_download(download_id)
 
-        game_name = manifest["game_name"]
-        version = str(manifest["version"])
-        if Path(game_name).is_absolute() or ".." in Path(game_name).parts:
-            raise ValueError("game_name unsafe")
-        if Path(version).is_absolute() or ".." in Path(version).parts:
-            raise ValueError("version unsafe")
+            game_name = manifest["game_name"]
+            version = str(manifest["version"])
+            if Path(game_name).is_absolute() or ".." in Path(game_name).parts:
+                raise ValueError("game_name unsafe")
+            if Path(version).is_absolute() or ".." in Path(version).parts:
+                raise ValueError("version unsafe")
 
-        final_dir = self.base / game_name / version
-        if final_dir.exists():
-            shutil.rmtree(final_dir, ignore_errors=True)
-        final_dir.parent.mkdir(parents=True, exist_ok=True)
-        stage_dir.rename(final_dir)
-
-        shutil.rmtree(sess.tmp_dir, ignore_errors=True)
-        self.downloadID_to_info.pop(download_id, None)
-        return {"path": str(final_dir), "manifest": manifest}
+            final_dir = self.base / game_name / version
+            if final_dir.exists():
+                shutil.rmtree(final_dir, ignore_errors=True)
+            final_dir.parent.mkdir(parents=True, exist_ok=True)
+            stage_dir.rename(final_dir)
+            return {"path": str(final_dir), "manifest": manifest}
+        except Exception as e:
+            shutil.rmtree(sess.tmp_dir, ignore_errors=True)
+            self.downloadID_to_info.pop(download_id, None)
+            logger.warning(f"finalise_download failed for {download_id}: {e}")
+            raise
+        finally:
+            shutil.rmtree(sess.tmp_dir, ignore_errors=True)
+            self.downloadID_to_info.pop(download_id, None)
 
     def _verify_download(self, download_id: str):
         sess = self.downloadID_to_info.get(download_id)
