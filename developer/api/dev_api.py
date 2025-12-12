@@ -4,6 +4,7 @@ from io import BytesIO
 from pathlib import Path
 from loguru import logger
 from typing import Any
+from shared.logger import ensure_global_logger, log_dir
 
 from shared.net import connect_to_server, send_request
 from server.core.config import DEV_SERVER_HOST_IP, DEV_SERVER_HOST_PORT
@@ -15,7 +16,8 @@ from server.core.protocol import (
     GAME_UPLOAD_BEGIN,
     GAME_UPLOAD_CHUNK,
     GAME_UPLOAD_END,
-    Message,
+    GAME_DELETE_GAME,
+    Message, USER_LIST,
 )
 
 
@@ -25,8 +27,8 @@ class DevClient:
     """
 
     def __init__(self, host: str | None = None, port: int | None = None):
-        logger.remove()
-        logger.add("dev_client.log", rotation="1 MB", level="INFO")
+        ensure_global_logger()
+        logger.add(log_dir() / "dev_client.log", rotation="1 MB", level="INFO")
         self.host = host or DEV_SERVER_HOST_IP
         self.port = port or DEV_SERVER_HOST_PORT
         self.token: str | None = None
@@ -100,7 +102,14 @@ class DevClient:
             raise ValueError(f"Upload end failed: {resp.message}")
         return resp
 
+    def deleteGame(self, username: str, game_name: str):
+        payload = {"username": username, "game_name": game_name}
+        return send_request(self.conn, self.file, self.token, GAME_DELETE_GAME, payload)
 
     def logout(self, username: str):
         resp = send_request(self.conn, self.file, self.token, ACCOUNT_LOGOUT_DEVELOPER, {"username": username})
+        return resp
+
+    def list_players(self):
+        resp = send_request(self.conn, self.file, self.token, USER_LIST, {"role": "developer"})
         return resp

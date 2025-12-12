@@ -20,6 +20,7 @@ STORE_OPTIONS = [
 
 LOBBY_OPTIONS = [
     ("List rooms", "list_rooms"),
+    ("List online players", "list_players"),
     ("Create room", "create_room"),
     ("Join room", "join_room"),
     ("Back to main menu", "back"),
@@ -27,6 +28,7 @@ LOBBY_OPTIONS = [
 
 ROOM_OPTIONS = [
     ("Start game", "start_game"),
+    ("Launch started game", "launch_game"),
     ("Leave room", "leave_room"),
 ]
 
@@ -34,6 +36,8 @@ GAME_OPTIONS = [
     ("View game details", "view_game_details"),
     ("View game reviews", "view_game_reviews"),
     ("Download game", "download_game"),
+    ("Update to latest version", "update_game"),
+    ("Delete local copy", "delete_game"),
     ("Give this game a review", "review_game"),
     ("Go back", "back"),
 ]
@@ -137,9 +141,10 @@ def show_rooms(rooms: list[dict]):
         name = room.get("room_name", "")
         meta = room.get("metadata", {}) or {}
         game = meta.get("game_name") or room.get("game_name", "")
+        version = meta.get("version") or room.get("version", "")
         status = room.get("status", "")
         host = room.get("host", "")
         players = room.get("players", [])
         max_p = room.get("max_players") or meta.get("max_players")
         cap = f"{len(players)}/{max_p}" if max_p else f"{len(players)}"
-        print(f"[{rid}] {name} | Game: {game} | Host: {host} | Players: {cap} | Status: {status}")
+        print(f"[{rid}] {name} | Game: {game} (Version: {version}) | Host: {host} | Players: {cap} | Status: {status}")

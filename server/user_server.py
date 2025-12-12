@@ -8,23 +8,34 @@ from server.core.storage_manager import StorageManager
 from server.core.handlers.auth_handler import register_player, login_player, logout_player
 from server.core.handlers.review_handler import list_review_game, list_review_author, delete_review, add_review, edit_review
 from server.core.handlers.game_handler import list_game, detail_game, download_begin, download_chunk, download_end, report_game, start_game
-from server.core.handlers.lobby_handler import list_rooms, create_room, join_room, leave_room
+from server.core.handlers.lobby_handler import list_rooms, create_room, join_room, leave_room, get_room, list_players
 from server.core.protocol import ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_LIST_GAME, ACCOUNT_LOGOUT_PLAYER, \
     GAME_GET_DETAILS, GAME_DOWNLOAD_BEGIN, GAME_DOWNLOAD_CHUNK, GAME_DOWNLOAD_END, LOBBY_LIST_ROOMS, \
-    LOBBY_CREATE_ROOM, LOBBY_JOIN_ROOM, LOBBY_LEAVE_ROOM, GAME_REPORT, GAME_START, REVIEW_SEARCH_AUTHOR, REVIEW_DELETE, REVIEW_EDIT, REVIEW_SEARCH_GAME, REVIEW_ADD
+    LOBBY_CREATE_ROOM, LOBBY_JOIN_ROOM, LOBBY_LEAVE_ROOM, GAME_REPORT, GAME_START, REVIEW_SEARCH_AUTHOR, REVIEW_DELETE, \
+    REVIEW_EDIT, REVIEW_SEARCH_GAME, REVIEW_ADD, ROOM_GET, USER_LIST
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 from server.util.validator import require_token
 from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
 from server.core.protocol import Message, message_to_dict
 from server.core.room_genie import RoomGenie
 from server.core.game_launcher import GameLauncher
+from shared.logger import ensure_global_logger, log_dir
 
 class user_server:
     def __init__(self):
 
-        # importing cfg file
-        logger.remove()
-        logger.add("user_server.log", rotation="1 MB", level="INFO", mode="w")
+        LOG_DIR = log_dir()
+        log_file_path = LOG_DIR / "user_server.log"
+        try:
+            with open(log_file_path, 'w'):
+                pass
+            logger.info(f"Log file '{log_file_path}' cleared successfully.")
+        except IOError as e:
+            logger.error(f"Error clearing log file: {e}")
+
+        # Re-add the log file handler if needed (e.g. at the start of your application)
+        ensure_global_logger()
+        logger.add(log_file_path, rotation="500 MB")
         self.host = USER_SERVER_HOST
         self.port = USER_SERVER_HOST_PORT
 
@@ -42,7 +53,16 @@ class user_server:
         """
         sock = create_listener(self.host, self.port)
         logger.info(f"user server listening on {self.host}:{self.port}")
-        serve(sock, self.handle_client)
+        try:
+            serve(sock, self.handle_client)
+        except KeyboardInterrupt:
+            logger.info("User server shutting down by KeyboardInterrupt")
+            self._shutdown_rooms()
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
 
     def handle_client(self, conn, addr):
         logger.info(f"user client connected: {addr}")
@@ -58,17 +78,20 @@ class user_server:
             LOBBY_LIST_ROOMS: lambda p: list_rooms(self.genie),
             LOBBY_CREATE_ROOM: lambda p: create_room(p, self.gmgr, self.genie),
             LOBBY_JOIN_ROOM: lambda p: join_room(p, self.genie),
-            LOBBY_LEAVE_ROOM: lambda p: leave_room(p, self.genie),
-            GAME_REPORT: lambda p: report_game(p, self.genie, self.gmLauncher),
-            GAME_START: lambda p: start_game(p, self.gmLauncher, self.genie),
+            LOBBY_LEAVE_ROOM: lambda p: leave_room(p, self.genie, self.gmLauncher),
+            GAME_REPORT: lambda p: report_game(p, self.genie, self.gmLauncher, self.reviewMgr),
+            GAME_START: lambda p: start_game(p, self.gmLauncher, self.genie, self.gmgr),
+            ROOM_GET: lambda p: get_room(p, self.genie),
             REVIEW_SEARCH_GAME: lambda p: list_review_game(p, self.reviewMgr),
             REVIEW_EDIT: lambda p: edit_review(p, self.reviewMgr, self.gmgr),
             REVIEW_DELETE: lambda p: delete_review(p, self.reviewMgr, self.gmgr),
             REVIEW_ADD: lambda p: add_review(p, self.reviewMgr, self.gmgr),
             REVIEW_SEARCH_AUTHOR: lambda p: list_review_author(p, self.reviewMgr),
+            USER_LIST: lambda p: list_players(p, self.auth),
 
         }
         no_auth_types = {ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_REPORT}
+        current_token: str | None = None
         with (conn):
             for msg in recv_json_lines(conn):
                 mtype = msg.get("type")
@@ -80,7 +103,14 @@ class user_server:
                     else:
                         if mtype not in no_auth_types:
                             require_token(self.auth, msg.get("token"), role="player")
+                            username, role = self.auth.validate(msg.get("token"), role="player")
+                            payload["username"] = username
+                            payload["author"] = username
+                            payload["role"] = role
+                            current_token = msg.get("token") or current_token
                         data = handler(payload)
+                        if mtype in {ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER} and data.get("status") == "ok":
+                            current_token = (data.get("payload") or {}).get("session_token", current_token)
                         reply = Message(
                             type=mtype or "",
                             status=data.get("status"),
@@ -90,12 +120,26 @@ class user_server:
                         )
                 except ValueError as e:
                     code = 104 if "REGISTER" in (mtype or "") else 101
+                    logger.warning(f"handler value error type={mtype} payload_keys={list(payload.keys())} err={e}")
                     reply = Message(type=mtype or "", status="error", code=code, message=str(e))
                 except Exception as e:
                     logger.exception("handler error")
                     reply = Message(type=mtype or "", status="error", code=199, message=str(e))
                 send_json(conn, message_to_dict(reply))
+        if current_token:
+            self.auth.logout(current_token)
         logger.info(f"user client disconnected: {addr}")
+
+    def _shutdown_rooms(self):
+        """
+        Stop any running game servers and clear room state.
+        """
+        for rid in list(self.genie.rooms.keys()):
+            try:
+                self.gmLauncher.stop_room(rid)
+            except Exception:
+                logger.error(f"Failed to stop room {rid} during shutdown")
+        self.genie.rooms.clear()
 
 
 

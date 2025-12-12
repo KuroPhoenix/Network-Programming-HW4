@@ -5,10 +5,11 @@ from pathlib import Path
 from typing import Optional
 from loguru import logger
 from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
+from shared.logger import ensure_global_logger, log_dir
 
 # Module-specific logging
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = log_dir()
+ensure_global_logger()
 logger.add(LOG_DIR / "game_launcher_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "game_launcher.py")
 
 @dataclass

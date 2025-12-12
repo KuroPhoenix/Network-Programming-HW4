@@ -1,11 +1,23 @@
-from server.core.room_genie import RoomGenie
-from server.core.game_manager import GameManager
+from dataclasses import asdict
 
+
+from server.core.room_genie import RoomGenie
+from server.core.game_launcher import GameLauncher
+from server.core.game_manager import GameManager
+from server.core.auth import Authenticator
 
 def list_rooms(genie: RoomGenie) -> dict:
     rooms = genie.list_rooms()
     return {"status": "ok", "code": 0, "payload": {"rooms": rooms}}
 
+def list_players(payload: dict, auth: Authenticator) -> dict:
+    role = payload.get("role", "")
+    players = auth.list_online_players(role)
+    return {"status": "ok", "code": 0, "payload": {"players": players}}
+
+def get_room(payload: dict, genie: RoomGenie) -> dict:
+    room = genie.get_room(payload.get("room_id"))
+    return {"status": "ok", "code": 0, "payload": asdict(room)}
 
 def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
     username = payload.get("username", "")
@@ -22,7 +34,7 @@ def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
         "max_players": game.get("max_players"),
         "type": game.get("type"),
     }
-    room = genie.create_room(username, room_name, metadata)
+    room = genie.create_room(username, room_name, metadata, gmgr)
     return {"status": "ok", "code": 0, "payload": {"room": room}}
 
 
@@ -39,10 +51,10 @@ def join_room(payload: dict, genie: RoomGenie) -> dict:
     return {"status": "ok", "code": 0, "payload": {"room_id": room_id}}
 
 
-def leave_room(payload: dict, genie: RoomGenie) -> dict:
+def leave_room(payload: dict, genie: RoomGenie, gmLauncher: GameLauncher | None = None) -> dict:
     username = payload.get("username", "")
     room_id = int(payload.get("room_id", 0))
     if not username or room_id <= 0:
         raise ValueError("username and room_id required")
-    host = genie.leave_room(username, room_id)
+    host = genie.leave_room(username, room_id, gmLauncher)
     return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "host": host}}

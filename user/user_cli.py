@@ -1,8 +1,10 @@
+from server.core.room_genie import Room
 from shared.input_helpers import user_review
 from user.api.user_api import UserClient
 from shared.main_menu import show_main_menu
 from user.ui.user_menu import show_authed_menu, show_store_menu, show_game_detail, show_lobby_menu, show_rooms, \
     show_room_menu, show_game_menu, show_review_menu, show_review_detail_menu
+from server.core.protocol import Message
 
 
 def prompt_credentials():
@@ -59,20 +61,14 @@ def main():
                                 while True:
                                     action = show_review_detail_menu()
                                     if action == "delete_review":
-                                        resp = client.delete_review(username, selected.get("game_name"), selected.get("content"))
+                                        resp = client.delete_review(username, selected.get("game_name"), selected.get("content"), selected.get("version"),)
                                         if resp.status != "ok":
                                             print(f"Error [{resp.code}]: {resp.message}")
                                         else:
                                             print("Review successfully deleted.")
                                     if action == "edit_review":
                                         new_review = user_review()
-                                        resp = client.edit_review(
-                                            username,
-                                            selected.get("game_name"),
-                                            selected.get("content"),
-                                            new_review.get("content"),
-                                            new_review.get("score"),
-                                        )
+                                        resp = client.edit_review(username,selected.get("game_name"),selected.get("content"),new_review.get("content"),new_review.get("score"),selected.get("version"),)
                                         if resp.status != "ok":
                                             print(f"Error [{resp.code}]: {resp.message}")
                                         else:
@@ -104,7 +100,27 @@ def main():
                             if action == "view_game_details":
                                 show_game_detail([selected])
                             if action == "download_game":
-                                client.download_game(username, selected.get("game_name", ""))
+                                try:
+                                    resp = client.download_game(username, selected.get("game_name", ""))
+                                    if isinstance(resp, Message) and resp.status != "ok":
+                                        print(f"Error [{resp.code}]: {resp.message}")
+                                    else:
+                                        print("Download completed.")
+                                except Exception as e:
+                                    print(f"Download failed: {e}")
+                            if action == "update_game":
+                                resp = client.update_game(username, selected.get("game_name", ""))
+                                if resp.status != "ok":
+                                    print(f"Error [{resp.code}]: {resp.message}")
+                                else:
+                                    msg = resp.message or "Updated to latest version."
+                                    print(msg)
+                            if action == "delete_game":
+                                resp = client.delete_game(username, selected.get("game_name", ""))
+                                if resp.status != "ok":
+                                    print(f"Error [{resp.code}]: {resp.message}")
+                                else:
+                                    print("Local copy deleted.")
                             if action == "view_game_reviews":
                                 resp = client.list_game_review(selected.get("game_name", ""))
                                 if resp.status != "ok":
@@ -124,8 +140,8 @@ def main():
                                         print("Please go back to main menu and edit your review there.")
                                     else:
                                         content = user_review()
-                                        client.add_review(username, selected.get("game_name", ""), content.get("content", ""), content.get("score"))
-
+                                        client.add_review(username,selected.get("game_name", ""),content.get("content", ""),content.get("score"),selected.get("version"),)
+#===========================================GAME DETAILS END=================================================================
                         elif action == "next":
                             if page_end < len(game_catalogue):
                                 page_start += 2
@@ -135,12 +151,23 @@ def main():
                             break
 
                 if action == "visit_lobby":
+#===============================================LOBBY MENU==============================================================
                     in_room = False
                     curr_room_id = 0
+                    game_name = ""
                     while True:
                         lobby_action = show_lobby_menu()
                         if lobby_action == "back":
                             break
+                        if lobby_action == "list_players":
+                            resp = client.list_players()
+                            if resp.status != "ok":
+                                print(f"Error [{resp.code}]: {resp.message}")
+                            else:
+                                players = resp.payload.get("players", [])
+                                print("Currently online players:")
+                                for p in players:
+                                    print(p)
                         if lobby_action == "list_rooms":
                             resp = client.list_rooms()
                             if resp.status == "ok":
@@ -168,26 +195,34 @@ def main():
                                 print(f"Joined room {room_id}.")
                                 in_room = True
                                 curr_room_id = room_id
+                                game_name = client.get_room(curr_room_id).payload["metadata"]["game_name"]
                             else:
                                 print(f"Error [{resp.code}]: {resp.message}")
-                        if in_room:
-                            while True:
-                                room_action = show_room_menu()
-                                if room_action == "leave_room":
-                                    resp = client.leave_room(username, curr_room_id)
-                                    if resp.status == "ok":
-                                        if resp.payload.get("host") == "":
-                                            print("Room deleted; no host remaining.")
-                                        else:
-                                            print(f"Left room {curr_room_id}. New host: {resp.payload.get('host')}")
+                    if in_room:
+#=============================================IN ROOM============================================================
+                        while True:
+                            room_action = show_room_menu()
+                            if room_action == "leave_room":
+                                resp = client.leave_room(username, curr_room_id)
+                                if resp.status == "ok":
+                                    if resp.payload.get("host") == "":
+                                        print("Room deleted; no host remaining.")
                                     else:
-                                        print(f"Error [{resp.code}]: {resp.message}")
-                                if room_action == "start_game":
-                                    resp = client.start_game(curr_room_id, username)
-                                    if resp.status == "ok":
-                                        print("Game started successfully!")
-                                    else:
-                                        print(f"Error [{resp.code}]: {resp.message}")
+                                        print(f"Left room {curr_room_id}. New host: {resp.payload.get('host')}")
+                                else:
+                                    print(f"Error [{resp.code}]: {resp.message}")
+                            if room_action == "start_game":
+                                resp = client.start_game(curr_room_id, game_name, username)
+                                if resp.status == "ok":
+                                    print("Game started successfully!")
+                                else:
+                                    print(f"Error [{resp.code}]: {resp.message}")
+                            if room_action == "launch_game":
+                                resp = client.launch_started_game(curr_room_id, username)
+                                if resp.status == "ok":
+                                    print("Launched local game client for this room.")
+                                else:
+                                    print(f"Error [{resp.code}]: {resp.message}")
                 if action == "logout":
                     resp = client.logout()
                     if resp.status == "ok":
@@ -195,6 +230,13 @@ def main():
                         print(f"{username} logged out successfully.\n")
                     else:
                         print(f"Error [{resp.code}]: {resp.message}")
+    except KeyboardInterrupt:
+        if auth_status:
+            try:
+                client.logout()
+            except Exception:
+                pass
+        print("\nInterrupted. Exiting user client.")
     finally:
         client.close()
 

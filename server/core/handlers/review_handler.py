@@ -1,6 +1,15 @@
 from server.core.review_manager import ReviewManager
 from server.core.game_manager import GameManager
 
+def _resolve_version(payload: dict, gmMgr: GameManager):
+    version = payload.get("version")
+    if version is None or version == "":
+        game = payload.get("game_name")
+        latest = gmMgr.get_game(game) if game else None
+        version = (latest or {}).get("version") if latest else None
+    if version is None or version == "":
+        raise ValueError("version not available for review")
+    return str(version)
 
 def list_review_author(payload: dict, reviewMgr: ReviewManager):
     key = payload.get("author")
@@ -26,7 +35,8 @@ def add_review(payload: dict, reviewMgr: ReviewManager, gmMgr: GameManager):
     game = payload.get("game_name")
     score = payload.get("score")
     if content and author and game and score is not None:
-        reviewMgr.add_review(author, game, content, int(score))
+        version = _resolve_version(payload, gmMgr)
+        reviewMgr.add_review(author, game, content, int(score), version)
         gmMgr.apply_score_delta(game, int(score), 1)
         return {"status": "ok", "code": 0, "payload": payload}
     else:
@@ -38,7 +48,8 @@ def delete_review(payload: dict, reviewMgr: ReviewManager, gmMgr: GameManager):
     author = payload.get("author")
     game = payload.get("game_name")
     if content and author and game:
-        deleted_score = reviewMgr.delete_author_review(author, game, content)
+        version = _resolve_version(payload, gmMgr)
+        deleted_score = reviewMgr.delete_author_review(author, game, content, version)
         if deleted_score is not None:
             gmMgr.apply_score_delta(game, -int(deleted_score), -1)
         return {"status": "ok", "code": 0, "payload": payload}
@@ -53,7 +64,10 @@ def edit_review(payload: dict, reviewMgr: ReviewManager, gmMgr: GameManager):
     game_name = payload.get("game_name")
     new_score = payload.get("score")
     if old_content and author and game_name and new_content and new_score is not None:
-        old_score, new_score_val = reviewMgr.edit_review(author, game_name, old_content, new_content, int(new_score))
+        version = _resolve_version(payload, gmMgr)
+        old_score, new_score_val = reviewMgr.edit_review(
+            author, game_name, old_content, new_content, int(new_score), version
+        )
         delta = int(new_score_val) - int(old_score)
         if delta != 0:
             gmMgr.apply_score_delta(game_name, delta, 0)

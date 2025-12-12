@@ -7,10 +7,11 @@ from dataclasses import dataclass, field
 
 from server.core.game_manager import GameManager
 from loguru import logger
+from shared.logger import ensure_global_logger, log_dir
 
 # Module-specific logging
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = log_dir()
+ensure_global_logger()
 logger.add(LOG_DIR / "storage_manager.log", rotation="1 MB", level="INFO", filter=lambda r: r["file"] == "storage_manager.py")
 logger.add(LOG_DIR / "storage_manager_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "storage_manager.py")
 @dataclass
@@ -73,8 +74,10 @@ class StorageManager:
         """
         sess = self.uploadID_to_info.get(upload_id)
         if not sess:
+            logger.error(f"append_chunk unknown upload_id={upload_id}")
             raise ValueError("unknown upload_id")
         if seq != sess.seq:
+            logger.warning(f"append_chunk out-of-order upload_id={upload_id} expected={sess.seq} got={seq}")
             raise ValueError("out-of-order chunk")
         sess.file_obj.write(chunk)
         sess.received += len(chunk)
@@ -198,7 +201,40 @@ class StorageManager:
 
         return manifest
 
-# =============================| User-Oriented |===================================================
+    def delete_game(self, game_name: str, game_paths: list[str] | None = None) -> list[str]:
+        """
+        Remove stored assets for a game. Accepts explicit version paths from the DB and
+        prunes the game root if it ends up empty.
+        """
+        if not game_name:
+            raise ValueError("game_name required")
+        if Path(game_name).is_absolute() or ".." in Path(game_name).parts:
+            raise ValueError("game_name unsafe")
+        removed: list[str] = []
+        base_resolved = self.base.resolve()
+        for path_str in set(game_paths or []):
+            if not path_str:
+                continue
+            p = Path(path_str)
+            try:
+                resolved = p.resolve()
+            except FileNotFoundError:
+                resolved = p
+            if not resolved.is_relative_to(base_resolved):
+                logger.warning(f"skip deletion outside storage root: {p}")
+                continue
+            if p.exists():
+                shutil.rmtree(p, ignore_errors=True)
+                removed.append(str(p))
+        game_root = self.base / game_name
+        try:
+            if game_root.exists() and not any(game_root.iterdir()):
+                shutil.rmtree(game_root, ignore_errors=True)
+        except FileNotFoundError:
+            pass
+        return removed
+
+#=============================| User-Oriented |===================================================
 
     def init_download_verification(self, metadata: dict):
         """
@@ -240,8 +276,10 @@ class StorageManager:
         """
         sess = self.downloadID_to_info.get(download_id)
         if not sess:
+            logger.error(f"read_download_chunk unknown download_id={download_id}")
             raise ValueError("unknown download_id")
         if seq != sess.seq:
+            logger.warning(f"read_download_chunk out-of-order download_id={download_id} expected={sess.seq} got={seq}")
             raise ValueError("out-of-order chunk")
 
         with sess.archive_path.open("rb") as f:

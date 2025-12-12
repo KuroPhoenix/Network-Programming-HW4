@@ -10,7 +10,7 @@ class LocalGameManager:
     """
 
     def __init__(self, base_dir: Path | None = None):
-        self.base_dir = base_dir or Path(__file__).resolve().parent / "games"
+        self.base_dir = base_dir or Path(__file__).resolve().parent.parent / "games"
 
     def list_games(self) -> List[Path]:
         """

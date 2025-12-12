@@ -3,10 +3,11 @@ import sqlite3
 import bcrypt
 import secrets
 from loguru import logger
+from shared.logger import ensure_global_logger, log_dir
 
-# Module-specific error logging
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+# Module-specific error logging plus shared workflow log
+LOG_DIR = log_dir()
+ensure_global_logger()
 logger.add(LOG_DIR / "auth_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "auth.py")
 
 
@@ -117,3 +118,14 @@ class Authenticator:
         if role and key[1] != role:
             raise ValueError("invalid token role")
         return key
+
+    def list_online_players(self, role: str | None = None) -> list[str]:
+        """
+        Return a list of usernames with active sessions (optionally filtered by role).
+        """
+        players: list[str] = []
+        for username, r in self.sessions.keys():
+            if role and r != role:
+                continue
+            players.append(username)
+        return players

@@ -1,7 +1,9 @@
 from shared.input_helpers import read_choice
 MAIN_OPTIONS = [
+    ("List online developers", "list_developers"),
     ("List my games", "list"),
     ("Create new game", "create"),
+    ("Delete a game from store", "delete"),
     ("Logout", "logout"),
 ]
 

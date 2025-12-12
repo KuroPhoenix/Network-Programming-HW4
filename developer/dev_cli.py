@@ -45,6 +45,15 @@ def main():
 
             while auth_status and running:
                 action = show_lobby_menu()
+                if action == "list_developers":
+                    resp = client.list_players()
+                    if resp.status == "ok":
+                        players = resp.payload.get("players", []) or []
+                        print("Current online developers:")
+                        for player in players:
+                            print(json.dumps(player, indent=2))
+                    else:
+                        print(f"Error [{resp.code}]: {resp.message}")
                 if action == "list":
                     # Show local manifests first, then server-side entries.
                     local_entries = local_mgr.list_manifests()
@@ -110,6 +119,45 @@ def main():
                         create_game_params["description"],
                     )
 
+                if action == "delete":
+                    resp = client.listGame(username)
+                    if resp.status != "ok":
+                        print(f"Error [{resp.code}]: {resp.message}")
+                        continue
+                    games = resp.payload.get("games", []) or []
+                    if not games:
+                        print("No games found on server.")
+                        continue
+                    unique_games = []
+                    seen = set()
+                    for row in games:
+                        name = row.get("game_name")
+                        if not name or name in seen:
+                            continue
+                        seen.add(name)
+                        unique_games.append(row)
+                    if not unique_games:
+                        print("No games found on server.")
+                        continue
+                    show_game_entries(unique_games, with_index=True)
+                    cancel_idx = len(unique_games) + 1
+                    print(f"{cancel_idx}. Cancel")
+                    choice = read_choice(1, cancel_idx)
+                    if choice == cancel_idx:
+                        continue
+                    target = unique_games[choice - 1]
+                    confirm = input(
+                        f"Delete {target.get('game_name')} from the store (all versions)? (y/n): "
+                    ).strip().lower()
+                    if not confirm.startswith("y"):
+                        print("Delete cancelled.")
+                        continue
+                    resp = client.deleteGame(username, target.get("game_name", ""))
+                    if resp.status == "ok":
+                        print(f"Deleted {target.get('game_name')} from the store.")
+                    else:
+                        print(f"Error [{resp.code}]: {resp.message}")
+
                 if action == "logout":
                     resp = client.logout(username)
                     if resp.status == "ok":
@@ -117,7 +165,13 @@ def main():
                         print(f"{username} logged out successfully.\n")
                     else:
                         print(f"Error [{resp.code}]: {resp.message}")
-
+    except KeyboardInterrupt:
+        if auth_status:
+            try:
+                client.logout(username)
+            except Exception:
+                pass
+        print("\nInterrupted. Exiting developer client.")
     finally:
         client.close()
 

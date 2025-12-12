@@ -1,14 +1,20 @@
 from dataclasses import asdict, dataclass, field
 from loguru import logger
+
+from server.core.config import USER_SERVER_HOST
 from server.core.game_launcher import GameLauncher
+from server.core.game_manager import GameManager
 from typing import Literal, Optional
 import threading
 import time
 from pathlib import Path
 
+from server.core.review_manager import ReviewManager
+from shared.logger import ensure_global_logger, log_dir
+
 # Module-specific logging
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_DIR = log_dir()
+ensure_global_logger()
 logger.add(LOG_DIR / "room_genie.log", rotation="1 MB", level="INFO", filter=lambda r: r["file"] == "room_genie.py")
 logger.add(LOG_DIR / "room_genie_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "room_genie.py")
 
@@ -39,20 +45,33 @@ class RoomGenie:
         with self.lock:
             return [asdict(room) for room in self.rooms.values()]
 
-    def create_room(self, host: str, room_name: str, metadata: dict) -> Room:
+    def create_room(self, host: str, room_name: str, metadata: dict, gmgr: GameManager) -> Room:
+        game_name = metadata.get("game_name")
+        if not game_name:
+            raise ValueError("game_name required")
+        latest = gmgr.get_game(game_name)
+        if not latest or latest.get("version") is None:
+            raise ValueError("game not found or no version available")
+
+        room_meta = {
+            "game_name": latest["game_name"],
+            "version": latest["version"],
+            # lock room to this version
+            "max_players": latest.get("max_players"),
+            "type": latest.get("type"),
+        }
+
         with self.lock:
             room_id = self.next_room_id
             self.next_room_id += 1
-            max_players = None
-            if isinstance(metadata, dict):
-                mp = metadata.get("max_players")
-                if isinstance(mp, int) and mp > 0:
-                    max_players = mp
-            room = Room(room_id, host, room_name, players=[host], metadata=metadata or {}, max_players=max_players)
+            max_players = room_meta.get("max_players")
+            if isinstance(max_players, int) and max_players <= 0:
+                max_players = None
+            room = Room(room_id, host, room_name, players=[host], metadata=room_meta, max_players=max_players)
             self.rooms[room_id] = room
             return room
 
-    def _get_room(self, room_id: int) -> Room:
+    def get_room(self, room_id: int) -> Room:
         room = self.rooms.get(room_id)
         if not room:
             raise ValueError(f"Room ID: {room_id} does not exist.")
@@ -87,13 +106,17 @@ class RoomGenie:
                     room.server_pid = None
             launcher.stop_room(room_id)
 
-    def start_game(self, room_id: int, gmLauncher: GameLauncher) -> dict:
+    def start_game(self, room_id: int, gmLauncher: GameLauncher, gmgr: GameManager) -> dict:
         with self.lock:
-            room = self._get_room(room_id)
+            room = self.get_room(room_id)
             if room.status == "IN_GAME":
                 logger.error("Game already started")
                 raise ValueError("Game already started")
-
+            latest_game = gmgr.get_game(room.metadata.get("game_name"))
+            if not latest_game or latest_game.get("version") is None:
+                raise ValueError("game not found or no version available in store.")
+            if room.metadata.get("version") != latest_game.get("version"):
+                raise ValueError("game version mismatch")
             room.status = "IN_GAME"
             running_result = gmLauncher.launch_room(room_id, room.host, room.metadata, room.players)
             room.port = running_result.port
@@ -101,7 +124,7 @@ class RoomGenie:
             room.server_pid = room.server_proc.pid
             room.token = running_result.token
             launch_info = {
-                "host": room.host,
+                "host": USER_SERVER_HOST,
                 "port": room.port,
                 "token": room.token,
                 "game_name": room.metadata.get("game_name"),
@@ -119,24 +142,27 @@ class RoomGenie:
         if hasattr(room, "server_proc"):
             room.server_proc = None  # type: ignore[attr-defined]
 
-    def game_ended_normally(self, winner: str, loser: str, room_id: int, gmLauncher: GameLauncher):
+    def game_ended_normally(self, winner: str, loser: str, room_id: int, gmLauncher: GameLauncher, reviewMgr: ReviewManager | None = None):
         with self.lock:
-            room = self._get_room(room_id)
+            room = self.get_room(room_id)
             room.status = "WAITING"
             room.wins[winner] = room.wins.get(winner, 0) + 1
             room.losses[loser] = room.losses.get(loser, 0) + 1
             self._clear_running(room, gmLauncher)
+            if reviewMgr:
+                reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), winner)
+                reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), loser)
 
     def game_ended_with_error(self, err_msg: str, room_id: int, gmLauncher: GameLauncher):
         with self.lock:
-            room = self._get_room(room_id)
+            room = self.get_room(room_id)
             room.status = "WAITING"
             self._clear_running(room, gmLauncher)
         logger.error(err_msg)
 
     def join_room_as_player(self, username: str, target_room_id: int):
         with self.lock:
-            room = self._get_room(target_room_id)
+            room = self.get_room(target_room_id)
             if username in room.players or username in room.spectators:
                 return
             if room.max_players is not None and len(room.players) >= room.max_players:
@@ -145,24 +171,27 @@ class RoomGenie:
 
     def join_room_as_spectator(self, username: str, target_room_id: int):
         with self.lock:
-            room = self._get_room(target_room_id)
+            room = self.get_room(target_room_id)
             if username in room.players or username in room.spectators:
                 return
             room.spectators.append(username)
 
-    def _delete_room(self, room_id: int):
+    def _delete_room(self, room_id: int, gmLauncher: GameLauncher | None = None):
         with self.lock:
-            if room_id in self.rooms:
-                del self.rooms[room_id]
-                return True
-            raise ValueError(f"Room ID: {room_id} does not exist.")
+            room = self.rooms.get(room_id)
+            if not room:
+                raise ValueError(f"Room ID: {room_id} does not exist.")
+            if gmLauncher and room.status == "IN_GAME":
+                self._clear_running(room, gmLauncher)
+            del self.rooms[room_id]
+            return True
 
-    def leave_room(self, username: str, target_room_id: int) -> str:
+    def leave_room(self, username: str, target_room_id: int, gmLauncher: GameLauncher | None = None) -> str:
         """
         Returns the name of the room host; empty string if the room was deleted.
         """
         with self.lock:
-            room = self._get_room(target_room_id)
+            room = self.get_room(target_room_id)
             was_host = room.host == username
 
             if username in room.players:
@@ -180,7 +209,7 @@ class RoomGenie:
                     room.host = new_host
                     room.players.append(new_host)
                 else:
-                    self._delete_room(target_room_id)
+                    self._delete_room(target_room_id, gmLauncher)
                     return ""
 
             return room.host

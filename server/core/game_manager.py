@@ -4,10 +4,11 @@ import bcrypt
 import secrets
 import json
 from loguru import logger
+from shared.logger import ensure_global_logger, log_dir
 
-# Module-specific error logging
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+# Module-specific error logging plus shared workflow log
+LOG_DIR = log_dir()
+ensure_global_logger()
 logger.add(LOG_DIR / "game_manager_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "game_manager.py")
 show_entries = "author, game_name, version, type, description, avg_score, review_count, max_players, game_folder"
 class GameManager:
@@ -131,6 +132,30 @@ class GameManager:
             logger.info(
                 f"Game {game_name} (Author: {username}, Version: {version}, Type: {type}) stored at {paths['path']}"
             )
+
+    def delete_game(self, username: str, game_name: str) -> tuple[list[str], int]:
+        """
+        Delete all versions of a game owned by `username`.
+        Returns (game_folder paths, number of DB rows deleted) for storage/cleanup.
+        """
+        logger.info(f"user {username} has requested deleteGame with game {game_name}.")
+        with self._conn_db() as conn:
+            cur = conn.execute(
+                "SELECT game_folder FROM games WHERE author=? AND game_name=?",
+                (username, game_name),
+            )
+            rows = cur.fetchall()
+            if not rows:
+                raise ValueError("game not found or not owned by user")
+            folders = [row[0] for row in rows if row and row[0]]
+            deleted_rows = len(rows)
+            conn.execute(
+                "DELETE FROM games WHERE author=? AND game_name=?",
+                (username, game_name),
+            )
+        logger.info(f"Deleted game {game_name} for author {username} from DB.")
+        # Deduplicate while preserving order
+        return list(dict.fromkeys(folders)), deleted_rows
 
     def create_metadata(self, username: str, game_name: str, type: str, description: str, max_players: int):
         """

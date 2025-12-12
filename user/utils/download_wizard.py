@@ -4,6 +4,7 @@ from loguru import logger
 from pathlib import Path
 from dataclasses import dataclass, field
 import shutil
+from shared.logger import ensure_global_logger, log_dir
 @dataclass
 class DownloadSession:
     file_obj: any
@@ -14,10 +15,10 @@ class DownloadSession:
     seq: int = 0
 
 class DownloadWizard:
-    def __init__(self):
-        logger.remove()
-        logger.add("download_wizard.log", rotation="1 MB", level="INFO", mode="w")
-        self.base = Path(__file__).resolve().parent.parent / "downloads"
+    def __init__(self, username: str):
+        ensure_global_logger()
+        logger.add(log_dir() / "download_wizard.log", rotation="1 MB", level="INFO", mode="w")
+        self.base = Path(__file__).resolve().parent.parent / "downloads" / username
         self.base.mkdir(parents=True, exist_ok=True)
         self.tmpdir = self.base / "tmp"
         self.tmpdir.mkdir(parents=True, exist_ok=True)
@@ -86,7 +87,7 @@ class DownloadWizard:
 
         final_dir = self.base / game_name / version
         if final_dir.exists():
-            raise ValueError("target version already exists")
+            shutil.rmtree(final_dir, ignore_errors=True)
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         stage_dir.rename(final_dir)
 
