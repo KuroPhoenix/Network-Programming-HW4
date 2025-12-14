@@ -17,7 +17,9 @@ def list_players(payload: dict, auth: Authenticator) -> dict:
 
 def get_room(payload: dict, genie: RoomGenie) -> dict:
     room = genie.get_room(payload.get("room_id"))
-    return {"status": "ok", "code": 0, "payload": asdict(room)}
+    data = asdict(room)
+    data["ready_players"] = list(room.ready_players)
+    return {"status": "ok", "code": 0, "payload": data}
 
 def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
     username = payload.get("username", "")
@@ -35,20 +37,27 @@ def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
         "type": game.get("type"),
     }
     room = genie.create_room(username, room_name, metadata, gmgr)
-    return {"status": "ok", "code": 0, "payload": {"room": room}}
+    data = asdict(room)
+    data["ready_players"] = list(room.ready_players)
+    return {"status": "ok", "code": 0, "payload": {"room": data}}
 
 
 def join_room(payload: dict, genie: RoomGenie) -> dict:
     username = payload.get("username", "")
     room_id = int(payload.get("room_id", 0))
-    as_spectator = bool(payload.get("spectator"))
     if not username or room_id <= 0:
         raise ValueError("username and room_id required")
-    if as_spectator:
-        genie.join_room_as_spectator(username, room_id)
-    else:
-        genie.join_room_as_player(username, room_id)
+    genie.join_room_as_player(username, room_id)
     return {"status": "ok", "code": 0, "payload": {"room_id": room_id}}
+
+def ready_room(payload: dict, genie: RoomGenie) -> dict:
+    username = payload.get("username", "")
+    room_id = int(payload.get("room_id", 0))
+    ready = bool(payload.get("ready", True))
+    if not username or room_id <= 0:
+        raise ValueError("username and room_id required")
+    res = genie.set_ready(username, room_id, ready)
+    return {"status": "ok", "code": 0, "payload": res}
 
 
 def leave_room(payload: dict, genie: RoomGenie, gmLauncher: GameLauncher | None = None) -> dict:

@@ -44,8 +44,8 @@ The server stores the manifest with each uploaded version; keep it accurate.
 
 ## Communication pattern
 - Transport: TCP, one JSON object per line (UTF-8).
-- Handshake: send a hello line that includes `{token}` and the player name/role so the server can validate and place the connection. Example: `{"type":"hello","player":"Alice","role":"player","token":"<token>"}`.
-- State updates: broadcast JSON lines (`tick`/`state`) to all players; handle spectator role by sending lighter updates.
+- Handshake: send a hello line that includes `{token}` and the player name so the server can validate and place the connection. Example: `{"type":"hello","player":"Alice","role":"player","token":"<token>"}`.
+- State updates: broadcast JSON lines (`tick`/`state`) to all players.
 - Commands: accept simple JSON commands from clients (`cmd`, `play`, `surrender`, etc.) and validate per-room token/identity.
 
 ## Checklist for a new game

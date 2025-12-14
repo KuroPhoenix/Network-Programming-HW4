@@ -6,13 +6,13 @@ from server.core.game_manager import GameManager
 from server.core.review_manager import ReviewManager
 from server.core.storage_manager import StorageManager
 from server.core.handlers.auth_handler import register_player, login_player, logout_player
-from server.core.handlers.review_handler import list_review_game, list_review_author, delete_review, add_review, edit_review
-from server.core.handlers.game_handler import list_game, detail_game, download_begin, download_chunk, download_end, report_game, start_game
-from server.core.handlers.lobby_handler import list_rooms, create_room, join_room, leave_room, get_room, list_players
+from server.core.handlers.review_handler import list_review_game, list_review_author, delete_review, add_review, edit_review, check_review_eligibility
+from server.core.handlers.game_handler import list_game, detail_game, download_begin, download_chunk, download_end, report_game, start_game, latest_version
+from server.core.handlers.lobby_handler import list_rooms, create_room, join_room, leave_room, get_room, list_players, ready_room
 from server.core.protocol import ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_LIST_GAME, ACCOUNT_LOGOUT_PLAYER, \
-    GAME_GET_DETAILS, GAME_DOWNLOAD_BEGIN, GAME_DOWNLOAD_CHUNK, GAME_DOWNLOAD_END, LOBBY_LIST_ROOMS, \
+    GAME_GET_DETAILS, GAME_DOWNLOAD_BEGIN, GAME_DOWNLOAD_CHUNK, GAME_DOWNLOAD_END, GAME_LATEST_VERSION, LOBBY_LIST_ROOMS, \
     LOBBY_CREATE_ROOM, LOBBY_JOIN_ROOM, LOBBY_LEAVE_ROOM, GAME_REPORT, GAME_START, REVIEW_SEARCH_AUTHOR, REVIEW_DELETE, \
-    REVIEW_EDIT, REVIEW_SEARCH_GAME, REVIEW_ADD, ROOM_GET, USER_LIST
+    REVIEW_EDIT, REVIEW_SEARCH_GAME, REVIEW_ADD, ROOM_GET, USER_LIST, REVIEW_ELIGIBILITY_CHECK, ROOM_READY
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 from server.util.validator import require_token
 from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
@@ -75,10 +75,12 @@ class user_server:
             GAME_DOWNLOAD_BEGIN: lambda p: download_begin(p, self.gmgr, self.smgr),
             GAME_DOWNLOAD_CHUNK: lambda p: download_chunk(p, self.smgr),
             GAME_DOWNLOAD_END: lambda p: download_end(p, self.smgr),
+            GAME_LATEST_VERSION: lambda p: latest_version(p, self.gmgr, self.smgr),
             LOBBY_LIST_ROOMS: lambda p: list_rooms(self.genie),
             LOBBY_CREATE_ROOM: lambda p: create_room(p, self.gmgr, self.genie),
             LOBBY_JOIN_ROOM: lambda p: join_room(p, self.genie),
             LOBBY_LEAVE_ROOM: lambda p: leave_room(p, self.genie, self.gmLauncher),
+            ROOM_READY: lambda p: ready_room(p, self.genie),
             GAME_REPORT: lambda p: report_game(p, self.genie, self.gmLauncher, self.reviewMgr),
             GAME_START: lambda p: start_game(p, self.gmLauncher, self.genie, self.gmgr),
             ROOM_GET: lambda p: get_room(p, self.genie),
@@ -87,15 +89,20 @@ class user_server:
             REVIEW_DELETE: lambda p: delete_review(p, self.reviewMgr, self.gmgr),
             REVIEW_ADD: lambda p: add_review(p, self.reviewMgr, self.gmgr),
             REVIEW_SEARCH_AUTHOR: lambda p: list_review_author(p, self.reviewMgr),
+            REVIEW_ELIGIBILITY_CHECK: lambda p: check_review_eligibility(p, self.reviewMgr, self.gmgr),
             USER_LIST: lambda p: list_players(p, self.auth),
 
         }
         no_auth_types = {ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, GAME_REPORT}
         current_token: str | None = None
+        current_username: str | None = None
         with (conn):
             for msg in recv_json_lines(conn):
                 mtype = msg.get("type")
                 payload = msg.get("payload", {}) or {}
+                # Allow raw GAME.REPORT frames from game servers (no payload envelope).
+                if mtype == GAME_REPORT and not payload:
+                    payload = {k: v for k, v in msg.items() if k != "type"}
                 handler = handlers.get(mtype)
                 try:
                     if not handler:
@@ -104,6 +111,7 @@ class user_server:
                         if mtype not in no_auth_types:
                             require_token(self.auth, msg.get("token"), role="player")
                             username, role = self.auth.validate(msg.get("token"), role="player")
+                            current_username = username
                             payload["username"] = username
                             payload["author"] = username
                             payload["role"] = role
@@ -126,8 +134,20 @@ class user_server:
                     logger.exception("handler error")
                     reply = Message(type=mtype or "", status="error", code=199, message=str(e))
                 send_json(conn, message_to_dict(reply))
-        if current_token:
-            self.auth.logout(current_token)
+        if current_token or current_username:
+            username = current_username
+            if not username and current_token:
+                try:
+                    username, _ = self.auth.validate(current_token, role="player")
+                except Exception:
+                    username = None
+            if username:
+                try:
+                    self.genie.remove_user_from_rooms(username, self.gmLauncher)
+                except Exception as e:
+                    logger.error(f"Failed to remove user {username} from rooms on disconnect: {e}")
+            if current_token:
+                self.auth.logout(current_token)
         logger.info(f"user client disconnected: {addr}")
 
     def _shutdown_rooms(self):

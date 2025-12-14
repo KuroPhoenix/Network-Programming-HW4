@@ -8,7 +8,7 @@ MAIN_OPTIONS = [
 
 
 def show_main_menu():
-    print("=== Main Menu ===")
+    print("\n=== Main Menu ===")
     for idx, (label, _) in enumerate(MAIN_OPTIONS, 1):
         print(f"{idx}. {label}")
     choice = read_choice(1, len(MAIN_OPTIONS))

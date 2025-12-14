@@ -1,0 +1,32 @@
+{
+  "game_name": "pp",
+  "author": "bob",
+  "version": "1.0.0",
+  "description": "penis",
+  "type": "CLI",
+  "max_players": 2,
+  "lobby_requires_download": true,
+  "uploaded": false,
+  "server": {
+    "command": "python server/main.py --port {port} --room {room_id}",
+    "working_dir": "server",
+    "env": {
+      "ROOM_ID": "{room_id}",
+      "PORT": "{port}"
+    }
+  },
+  "client": {
+    "command": "python client/main.py --host {host} --port {port} --player {player_name}",
+    "working_dir": "client",
+    "env": {
+      "PLAYER_NAME": "{player_name}"
+    }
+  },
+  "assets": [
+    "assets/*"
+  ],
+  "healthcheck": {
+    "tcp_port": "{port}",
+    "timeout_sec": 5
+  }
+}

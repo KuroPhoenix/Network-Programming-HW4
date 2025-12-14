@@ -52,13 +52,14 @@ class GameManager:
         :param role:
         :return:
         """
+        role_norm = (role or "").upper()
         with self._conn_db() as conn:
-            if role == "DEVELOPER":
+            if role_norm == "DEVELOPER":
                 cur = conn.execute(
                     "SELECT * FROM games WHERE author=?",
                     (username, ),
                 )
-            elif role == "PLAYER":
+            elif role_norm == "PLAYER":
                 cur = conn.execute(
                     f"SELECT {show_entries} FROM games",
                 )

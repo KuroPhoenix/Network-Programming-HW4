@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
+#!/usr/bin/env bash
+# Starts the two servers in a single tmux session with separate windows.
+# Usage: ./run.sh
+
 set -euo pipefail
 
-# Starts servers and requested clients in a single tmux session with separate windows/panes.
-# Usage: ./run.sh [user|dev|all] (default: user)
-
-role="${1:-user}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 venv_dir="${root}/.venv"
 
@@ -101,8 +101,8 @@ start_session_window "user_server" "$PYTHON" -u -m server.user_server
 # Add dev_server window.
 start_window "dev_server" "$PYTHON" -u -m server.dev_server
 
-# Wait for servers to listen before launching clients.
-if ! wait_for_port "127.0.0.1" 16532 "user_server"; then
+# Wait for servers to listen.
+if ! wait_for_port "127.0.0.1" 16534 "user_server"; then
   "$TMUX_BIN" kill-session -t "$session"
   exit 1
 fi
@@ -111,25 +111,7 @@ if ! wait_for_port "127.0.0.1" 16533 "dev_server"; then
   exit 1
 fi
 
-case "$role" in
-  user)
-    start_window "user_client" "$PYTHON" -u -m user.user_cli
-    ;;
-  dev)
-    start_window "dev_client" "$PYTHON" -u -m developer.dev_cli
-    ;;
-  all)
-    start_window "user_client" "$PYTHON" -u -m user.user_cli
-    start_window "dev_client" "$PYTHON" -u -m developer.dev_cli
-    ;;
-  *)
-    echo "Usage: $0 {user|dev|all}"
-    "$TMUX_BIN" kill-session -t "$session"
-    exit 1
-    ;;
-esac
-
-echo "tmux session '$session' started with windows: user_server, dev_server${role:+, $role client(s)}."
+echo "tmux session '$session' started with windows: user_server, dev_server."
 if [ -t 1 ]; then
   "$TMUX_BIN" attach -t "$session"
 else

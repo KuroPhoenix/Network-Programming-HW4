@@ -79,7 +79,7 @@ class ReviewManager:
                 (player, game_name, str(version)),
             )
 
-    def _validate_review_eligibility(self, name: str, game_name: str, version: str):
+    def validate_review_eligibility(self, name: str, game_name: str, version: str):
         with self._conn_db() as conn:
             cur = conn.execute(
                 "SELECT when_added FROM play_history WHERE player=? AND game_name=? AND version=?",
@@ -92,7 +92,7 @@ class ReviewManager:
                 )
 
     def add_review(self, author: str, game_name: str, content: str, score: int, version: str):
-        self._validate_review_eligibility(author, game_name, str(version))
+        self.validate_review_eligibility(author, game_name, str(version))
         self._validate_score(score)
         with self._conn_db() as conn:
             conn.execute(

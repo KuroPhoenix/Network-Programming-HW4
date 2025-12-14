@@ -25,7 +25,7 @@ class Room:
     room_name: str
     token: Optional[str] = None
     players: list[str] = field(default_factory=list)
-    spectators: list[str] = field(default_factory=list)
+    ready_players: set[str] = field(default_factory=set)
     metadata: dict = field(default_factory=dict)
     max_players: Optional[int] = None
     status: Literal["WAITING", "IN_GAME"] = "WAITING"
@@ -43,7 +43,39 @@ class RoomGenie:
 
     def list_rooms(self) -> list[dict]:
         with self.lock:
-            return [asdict(room) for room in self.rooms.values()]
+            rooms = []
+            for room in self.rooms.values():
+                data = asdict(room)
+                data["ready_players"] = list(room.ready_players)
+                rooms.append(data)
+            return rooms
+
+    def remove_user_from_rooms(self, username: str, gmLauncher: GameLauncher | None = None) -> list[int]:
+        """
+        Remove a user from any rooms they occupy. If they were host and no players remain,
+        the room is deleted (and any running game is stopped). Returns list of room_ids affected.
+        """
+        affected: list[int] = []
+        with self.lock:
+            for room_id, room in list(self.rooms.items()):
+                if username not in room.players:
+                    continue
+                affected.append(room_id)
+                room.players = [p for p in room.players if p != username]
+                was_host = room.host == username
+                if was_host:
+                    if room.players:
+                        room.host = room.players[0]
+                    else:
+                        if gmLauncher and room.status == "IN_GAME":
+                            self._clear_running(room, gmLauncher)
+                        del self.rooms[room_id]
+                        continue
+                if not room.players:
+                    if gmLauncher and room.status == "IN_GAME":
+                        self._clear_running(room, gmLauncher)
+                    del self.rooms[room_id]
+        return affected
 
     def create_room(self, host: str, room_name: str, metadata: dict, gmgr: GameManager) -> Room:
         game_name = metadata.get("game_name")
@@ -125,6 +157,12 @@ class RoomGenie:
                 raise ValueError("game not found or no version available in store.")
             if room.metadata.get("version") != latest_game.get("version"):
                 raise ValueError("game version mismatch")
+            required_players = 2 if (room.max_players is None or room.max_players >= 2) else 1
+            if len(room.players) < required_players:
+                raise ValueError(f"Not enough players to start. Need at least {required_players}.")
+            needed_ready = [p for p in room.players if p != room.host]
+            if needed_ready and not set(needed_ready).issubset(room.ready_players):
+                raise ValueError("Not all players are ready.")
             room.status = "IN_GAME"
             running_result = gmLauncher.launch_room(room_id, room.host, room.metadata, room.players)
             room.port = running_result.port
@@ -140,7 +178,9 @@ class RoomGenie:
             }
             t = threading.Thread(target=self._watch_room, args=(room_id, gmLauncher), daemon=True)
             t.start()
-            return {"room": asdict(room), "launch": launch_info}
+            room_data = asdict(room)
+            room_data["ready_players"] = list(room.ready_players)
+            return {"room": room_data, "launch": launch_info}
 
     def _clear_running(self, room: Room, gmLauncher: GameLauncher):
         gmLauncher.stop_room(room.room_id)
@@ -156,6 +196,7 @@ class RoomGenie:
             room.status = "WAITING"
             room.wins[winner] = room.wins.get(winner, 0) + 1
             room.losses[loser] = room.losses.get(loser, 0) + 1
+            room.ready_players.clear()
             self._clear_running(room, gmLauncher)
             if reviewMgr:
                 reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), winner)
@@ -165,24 +206,19 @@ class RoomGenie:
         with self.lock:
             room = self.get_room(room_id)
             room.status = "WAITING"
+            room.ready_players.clear()
             self._clear_running(room, gmLauncher)
         logger.error(err_msg)
 
     def join_room_as_player(self, username: str, target_room_id: int):
         with self.lock:
             room = self.get_room(target_room_id)
-            if username in room.players or username in room.spectators:
+            if username in room.players:
                 return
             if room.max_players is not None and len(room.players) >= room.max_players:
                 raise ValueError(f"Room ID: {room.room_id} {room.room_name} is full.")
             room.players.append(username)
-
-    def join_room_as_spectator(self, username: str, target_room_id: int):
-        with self.lock:
-            room = self.get_room(target_room_id)
-            if username in room.players or username in room.spectators:
-                return
-            room.spectators.append(username)
+            room.ready_players.discard(username)
 
     def _delete_room(self, room_id: int, gmLauncher: GameLauncher | None = None):
         with self.lock:
@@ -204,20 +240,26 @@ class RoomGenie:
 
             if username in room.players:
                 room.players.remove(username)
-            elif username in room.spectators:
-                room.spectators.remove(username)
+                room.ready_players.discard(username)
             else:
                 raise ValueError(f"User {username} not in room {target_room_id}")
 
             if was_host:
                 if room.players:
                     room.host = room.players[0]
-                elif room.spectators:
-                    new_host = room.spectators.pop(0)
-                    room.host = new_host
-                    room.players.append(new_host)
                 else:
                     self._delete_room(target_room_id, gmLauncher)
                     return ""
 
             return room.host
+
+    def set_ready(self, username: str, room_id: int, ready: bool = True) -> dict:
+        with self.lock:
+            room = self.get_room(room_id)
+            if username not in room.players:
+                raise ValueError(f"User {username} not in room {room_id}")
+            if ready:
+                room.ready_players.add(username)
+            else:
+                room.ready_players.discard(username)
+            return {"room_id": room_id, "ready_players": list(room.ready_players)}

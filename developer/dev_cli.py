@@ -59,17 +59,22 @@ def main():
                         # Show local manifests first, then server-side entries.
                         local_entries = local_mgr.list_manifests()
                         page_start = 0
-                        page_size = 2
+                        page_size = 4
+                        aborted = False
                         while True:
                             page_slice = local_entries[page_start : page_start + page_size]
                             if not page_slice:
                                 print("No local games.")
                                 break
                             action_sel = show_game_menu(
+                                username,
                                 page_slice,
                                 has_prev=page_start > 0,
                                 has_next=page_start + page_size < len(local_entries),
                             )
+                            if action_sel == -1:
+                                aborted = True
+                                break
                             if isinstance(action_sel, tuple) and action_sel[0] == "select":
                                 selected = page_slice[action_sel[1]]
                                 try:
@@ -103,7 +108,10 @@ def main():
                             elif action_sel == "prev":
                                 page_start = max(0, page_start - page_size)
                             elif action_sel == "back":
+                                aborted = True
                                 break
+                        if aborted:
+                            continue
                         resp = client.listGame(username)
                         if resp.status == "ok":
                             print("=== Server Game Manifests ===")
@@ -112,13 +120,18 @@ def main():
                             print(f"Error [{resp.code}]: {resp.message}")
 
                     if action == "create":
-                        create_game_params = dev_create_game()
-                        local_mgr.create_manifest(
+                        create_game_params = dev_create_game(username)
+                        manifest_path, created = local_mgr.create_or_update_manifest(
                             create_game_params["game_name"],
                             create_game_params["version"],
                             create_game_params["game_type"],
                             create_game_params["description"],
+                            author=create_game_params["author"],
                         )
+                        if created:
+                            print(f"Created new game manifest at {manifest_path}")
+                        else:
+                            print(f"Updated existing game manifest at {manifest_path}")
 
                     if action == "delete":
                         resp = client.listGame(username)
@@ -158,6 +171,34 @@ def main():
                             print(f"Deleted {target.get('game_name')} from the store.")
                         else:
                             print(f"Error [{resp.code}]: {resp.message}")
+
+                    if action == "delete_local":
+                        local_entries = local_mgr.list_manifests()
+                        if not local_entries:
+                            print("No local games to delete.")
+                            continue
+                        print("=== Local Games ===")
+                        show_game_entries(local_entries, with_index=True)
+                        cancel_idx = len(local_entries) + 1
+                        print(f"{cancel_idx}. Cancel")
+                        choice = read_choice(1, cancel_idx)
+                        if choice == cancel_idx:
+                            continue
+                        target = local_entries[choice - 1]
+                        confirm = input(
+                            f"Delete local game folder {target.get('game_name')} at {target.get('_path')}? (y/n): "
+                        ).strip().lower()
+                        if not confirm.startswith("y"):
+                            print("Delete cancelled.")
+                            continue
+                        try:
+                            ok = local_mgr.delete_game(target.get("game_name", ""))
+                            if ok:
+                                print("Local game deleted.")
+                            else:
+                                print("Local game not found.")
+                        except Exception as e:
+                            print(f"Failed to delete local game: {e}")
 
                     if action == "logout":
                         resp = client.logout(username)

@@ -1,5 +1,6 @@
 {
   "game_name": "Tetris",
+  "author": "bob",
   "version": "1.0.0",
   "description": "Two-player Tetris duel server/client in C++.",
   "type": "CLI",

@@ -14,17 +14,20 @@ LOG_DIR = log_dir()
 ensure_global_logger()
 logger.add(LOG_DIR / "storage_manager.log", rotation="1 MB", level="INFO", filter=lambda r: r["file"] == "storage_manager.py")
 logger.add(LOG_DIR / "storage_manager_errors.log", rotation="1 MB", level="ERROR", filter=lambda r: r["file"] == "storage_manager.py")
-@dataclass
-class UploadSession(order=True):
+@dataclass(order=True)
+class UploadSession:
     file_obj: any
     tmp_dir: Path = field(default_factory=Path)
     archive_path: Path = field(default_factory=Path)
     manifest_path: Path = field(default_factory=Path)
     received: int = 0
     seq: int = 0
+    expected_size: int | None = None
+    expected_checksum: str | None = None
+    chunk_size: int = 64 * 1024
 
-@dataclass
-class DownloadSession(order=True):
+@dataclass(order=True)
+class DownloadSession:
     download_id: str
     tmp_dir: Path = field(default_factory=Path)
     archive_path: Path = field(default_factory=Path)
@@ -43,6 +46,7 @@ class StorageManager:
         self.uploadID_to_metadata: dict[str, dict] = dict()
         self.downloadID_to_info: dict[str, DownloadSession] = dict()
         self.downloadID_to_metadata: dict[str, dict] = dict()
+        self.download_meta_cache: dict[str, dict] = dict()
 
 # ============================| Dev-Oriented |=============================================
 
@@ -55,12 +59,16 @@ class StorageManager:
         """
         if not expected_metadata or "game_name" not in expected_metadata:
             raise ValueError("expected_metadata missing game_name")
+        expected_size = expected_metadata.get("size_bytes")
+        expected_checksum = expected_metadata.get("checksum")
         upload_id = secrets.token_hex(16)
         game_path_tmp = self.tmpdir / upload_id
         game_path_tmp.mkdir(parents=True, exist_ok=True)
         game_path = game_path_tmp / "upload.tar.gz"
         file = game_path.open("wb")
-        self.uploadID_to_info[upload_id] = UploadSession(file, game_path_tmp, game_path)
+        self.uploadID_to_info[upload_id] = UploadSession(
+            file, game_path_tmp, game_path, expected_size=expected_size if expected_size else None, expected_checksum=expected_checksum if expected_checksum else None
+        )
         self.uploadID_to_metadata[upload_id] = expected_metadata
         return upload_id
 
@@ -79,6 +87,8 @@ class StorageManager:
         if seq != sess.seq:
             logger.warning(f"append_chunk out-of-order upload_id={upload_id} expected={sess.seq} got={seq}")
             raise ValueError("out-of-order chunk")
+        if sess.expected_size is not None and sess.received + len(chunk) > sess.expected_size:
+            raise ValueError("size overflow")
         sess.file_obj.write(chunk)
         sess.received += len(chunk)
         if seq is not None:
@@ -96,6 +106,13 @@ class StorageManager:
         sess.file_obj.close()
         try:
             manifest, stage_dir = self._verify_upload(upload_id)
+            if sess.expected_size is not None and sess.received != sess.expected_size:
+                raise ValueError("size mismatch")
+            archive_checksum = None
+            if sess.expected_checksum:
+                archive_checksum = self._sha256_file(sess.archive_path)
+                if archive_checksum != sess.expected_checksum:
+                    raise ValueError("checksum mismatch")
 
             game_name = manifest["game_name"]
             version = str(manifest["version"])
@@ -109,7 +126,8 @@ class StorageManager:
                 raise ValueError("target version already exists")
             final_dir.parent.mkdir(parents=True, exist_ok=True)
             stage_dir.rename(final_dir)
-            return {"path": str(final_dir), "manifest": manifest}
+
+            return {"path": str(final_dir), "manifest": manifest, "checksum": archive_checksum}
         except Exception as e:
             shutil.rmtree(sess.tmp_dir, ignore_errors=True)
             self.uploadID_to_info.pop(upload_id, None)
@@ -276,6 +294,9 @@ class StorageManager:
             "game_name": metadata["game_name"],
             "version": str(version_val),
         }
+        size_bytes = archive_path.stat().st_size
+        checksum = self._sha256_file(archive_path)
+        self.download_meta_cache[download_id] = {"size_bytes": size_bytes, "checksum": checksum}
         return download_id
 
     def read_download_chunk(self, download_id: str, seq: int, chunk_size: int = 64 * 1024):
@@ -304,8 +325,30 @@ class StorageManager:
     def complete_download(self, download_id: str):
         sess = self.downloadID_to_info.pop(download_id, None)
         self.downloadID_to_metadata.pop(download_id, None)
+        self.download_meta_cache.pop(download_id, None)
         if not sess:
             raise ValueError("unknown download_id")
         shutil.rmtree(sess.tmp_dir, ignore_errors=True)
         return True
+
+    def describe_package(self, game_name: str, version: str, game_folder: str | None = None) -> dict:
+        """
+        Return size and checksum for a stored game package by creating a temp archive snapshot.
+        """
+        base_folder = game_folder or str(self.base / game_name / str(version))
+        meta = {"game_name": game_name, "version": version, "game_folder": base_folder}
+        download_id = self.init_download_verification(meta)
+        info = self.download_meta_cache.get(download_id, {})
+        # cleanup temp artifacts
+        self.complete_download(download_id)
+        return {"size_bytes": info.get("size_bytes", 0), "checksum": info.get("checksum")}
+
+    def _sha256_file(self, path: Path) -> str:
+        import hashlib
+
+        h = hashlib.sha256()
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
 

@@ -82,6 +82,42 @@ class LocalGameManager:
                     continue
         return manifests
 
+    def list_downloaded_games(self) -> List[Dict[str, Any]]:
+        """
+        Summarise locally downloaded games.
+        Returns entries like:
+        {
+          "game_name": "...",
+          "versions": ["1.0.0", "1.1.0"],
+          "latest_version": "1.1.0",
+          "type": "...",
+          "description": "...",
+          "_path": "<path to latest version dir>"
+        }
+        """
+        games: List[Dict[str, Any]] = []
+        for game_dir in self.list_games():
+            game_name = game_dir.name
+            versions = self.list_versions(game_name)
+            if not versions:
+                continue
+            latest = versions[-1]
+            try:
+                manifest = self.load_manifest(game_name, latest)
+            except Exception:
+                manifest = {}
+            games.append(
+                {
+                    "game_name": manifest.get("game_name", game_name),
+                    "versions": versions,
+                    "latest_version": latest,
+                    "type": manifest.get("type"),
+                    "description": manifest.get("description"),
+                    "_path": str(self._manifest_path(game_name, latest).parent),
+                }
+            )
+        return games
+
     def delete_version(self, game_name: str, version: str) -> bool:
         """
         Remove a specific version folder for a game.

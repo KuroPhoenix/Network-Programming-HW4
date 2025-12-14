@@ -34,14 +34,27 @@ def add_review(payload: dict, reviewMgr: ReviewManager, gmMgr: GameManager):
     author = payload.get("author")
     game = payload.get("game_name")
     score = payload.get("score")
-    if content and author and game and score is not None:
-        version = _resolve_version(payload, gmMgr)
-        reviewMgr.add_review(author, game, content, int(score), version)
-        gmMgr.apply_score_delta(game, int(score), 1)
-        return {"status": "ok", "code": 0, "payload": payload}
-    else:
-        return {"status": "error", "code": 1, "payload": payload}
+    try:
+        if content and author and game and score is not None:
+            version = _resolve_version(payload, gmMgr)
+            reviewMgr.validate_review_eligibility(author, game, version)
+            reviewMgr.add_review(author, game, content, int(score), version)
+            gmMgr.apply_score_delta(game, int(score), 1)
+            return {"status": "ok", "code": 0, "payload": payload}
+        return {"status": "error", "code": 1, "message": "missing fields", "payload": payload}
+    except ValueError as e:
+        return {"status": "error", "code": 1, "message": str(e), "payload": payload}
 
+def check_review_eligibility(payload: dict, reviewMgr: ReviewManager, gmMgr: GameManager):
+    author = payload.get("author")
+    game_name = payload.get("game_name")
+    version = payload.get("version")
+    try:
+        resolved_version = version or _resolve_version(payload, gmMgr)
+        reviewMgr.validate_review_eligibility(author, game_name, resolved_version)
+        return {"status": "ok", "code": 0, "payload": payload}
+    except ValueError as e:
+        return {"status": "error", "code": 1, "message": str(e), "payload": payload}
 
 def delete_review(payload: dict, reviewMgr: ReviewManager, gmMgr: GameManager):
     content = payload.get("content")

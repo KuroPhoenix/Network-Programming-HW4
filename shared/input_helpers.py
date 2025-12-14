@@ -13,11 +13,12 @@ def read_choice(min_val: int, max_val: int) -> int:
             continue
         return choice
 
-def dev_create_game() -> dict:
+def dev_create_game(default_author: str | None = None) -> dict:
     game_name = ""
     game_type = ""
     version = "1.0.0"
     description = ""
+    author = ""
     while True:
         raw = input("Enter game name: ").strip()
         if not raw:
@@ -33,11 +34,12 @@ def dev_create_game() -> dict:
             continue
         game_type = raw
         break
+
     raw_ver = input("Enter version (default 1.0.0): ").strip()
     if raw_ver:
         version = raw_ver
     description = input("Enter description (optional): ").strip()
-    return {"game_name": game_name, "game_type": game_type, "version": version, "description": description}
+    return {"game_name": game_name, "game_type": game_type, "version": version, "description": description, "author": default_author}
 
 def dev_upload_game() -> dict:
     game_name = ""
@@ -95,5 +97,4 @@ def user_review() -> dict:
             continue
         break
     return {"score": int(score), "content": raw}
-
 

@@ -233,13 +233,14 @@ class TetrisServer:
             except Exception:
                 msg = None
             if not msg:
-                time.sleep(0.05)
-                continue
+                # treat disconnect as quit
+                self.states[pname].queue.append("QUIT")
+                return
             if msg.get("type") == "cmd":
                 cmd = msg.get("cmd", "").upper()
                 self.states[pname].queue.append(cmd)
             elif msg.get("type") == "quit":
-                self.states[pname].alive = False
+                self.states[pname].queue.append("QUIT")
                 return
 
     def new_bag(self) -> List[str]:
@@ -294,6 +295,15 @@ class TetrisServer:
                 self.hold_piece(state)
             elif cmd == "QUIT":
                 state.alive = False
+                # end immediately if someone quits
+                winner = [p for p in self.players_order if self.states[p].alive][0] if any(s.alive for s in self.states.values()) else ""
+                loser = [p for p in self.players_order if p != winner][0] if winner else ""
+                for conn in self.connections.values():
+                    send_json(conn, {"type": "game_over", "winner": winner})
+                for conn in self.spectators.values():
+                    send_json(conn, {"type": "game_over", "winner": winner})
+                self._report_status("END", winner=winner, loser=loser, reason="quit")
+                self.running = False
 
     def try_move(self, state: PlayerState, dx: int, dy: int) -> bool:
         if not state.piece:

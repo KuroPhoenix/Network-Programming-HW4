@@ -24,8 +24,8 @@ from server.core.protocol import (
     LOBBY_LIST_ROOMS,
     LOBBY_CREATE_ROOM,
     LOBBY_JOIN_ROOM,
-    LOBBY_LEAVE_ROOM, REVIEW_SEARCH_AUTHOR, REVIEW_SEARCH_GAME, REVIEW_DELETE, REVIEW_ADD, REVIEW_EDIT, ROOM_GET,
-    USER_LIST,
+    LOBBY_LEAVE_ROOM, REVIEW_SEARCH_AUTHOR, REVIEW_SEARCH_GAME, REVIEW_DELETE, REVIEW_ADD, REVIEW_EDIT, ROOM_GET, REVIEW_ELIGIBILITY_CHECK,
+    USER_LIST, ROOM_READY,
 )
 from user.utils.local_game_manager import LocalGameManager
 
@@ -43,8 +43,11 @@ class UserClient:
         self.conn, self.file = connect_to_server(self.host, self.port)
         self.username: str | None = None
         self.local_mgr: LocalGameManager | None = None
+        self._watch_threads = []
 
     def close(self):
+        for t in self._watch_threads:
+            t.join(timeout=0.1)
         try:
             self.file.close()
         finally:
@@ -84,6 +87,32 @@ class UserClient:
         resp = send_request(self.conn, self.file, self.token, USER_LIST, {"role": "player"})
         return resp
 
+    def watch_rooms(self, interval: float = 3.0, callback=None):
+        """
+        Start a background poller that fetches rooms and online players periodically.
+        Callback signature: callback({"rooms": [...], "players": [...]})
+        """
+        import threading, time
+
+        def loop():
+            while True:
+                try:
+                    rooms_resp = self.list_rooms()
+                    players_resp = self.list_players()
+                    payload = {
+                        "rooms": rooms_resp.payload.get("rooms", []) if rooms_resp.status == "ok" else [],
+                        "players": players_resp.payload.get("players", []) if players_resp.status == "ok" else [],
+                    }
+                    if callback:
+                        callback(payload)
+                except Exception:
+                    pass
+                time.sleep(interval)
+
+        t = threading.Thread(target=loop, daemon=True)
+        t.start()
+        self._watch_threads.append(t)
+
     def get_game_details(self, game_name: str):
         resp = send_request(self.conn, self.file, self.token, GAME_GET_DETAILS, {"game_name": game_name})
         return resp
@@ -98,9 +127,13 @@ class UserClient:
         payload = {"username": username, "game_name": game_name, "room_name": room_name}
         return send_request(self.conn, self.file, self.token, LOBBY_CREATE_ROOM, payload)
 
-    def join_room(self, username: str, room_id: int, spectator: bool = False):
-        payload = {"username": username, "room_id": room_id, "spectator": spectator}
+    def join_room(self, username: str, room_id: int):
+        payload = {"username": username, "room_id": room_id}
         return send_request(self.conn, self.file, self.token, LOBBY_JOIN_ROOM, payload)
+
+    def set_ready(self, username: str, room_id: int, ready: bool = True):
+        payload = {"username": username, "room_id": room_id, "ready": ready}
+        return send_request(self.conn, self.file, self.token, ROOM_READY, payload)
 
     def leave_room(self, username: str, room_id: int):
         payload = {"username": username, "room_id": room_id}
@@ -113,6 +146,12 @@ class UserClient:
     def list_game_review(self, game_name: str):
         payload = {"game_name": game_name}
         return send_request(self.conn, self.file, self.token, REVIEW_SEARCH_GAME, payload)
+
+    def check_review_eligibility(self, author: str, game_name: str, version: str | None = None):
+        payload = {"author": author, "game_name": game_name}
+        if version is not None:
+            payload["version"] = version
+        return send_request(self.conn, self.file, self.token, REVIEW_ELIGIBILITY_CHECK, payload)
 
     def delete_review(self, author: str, game_name: str, content: str, version: str | None = None):
         payload = {"author": author, "game_name": game_name, "content": content}
@@ -246,7 +285,11 @@ class UserClient:
         payload = {"path": result.get("path"), "manifest": result.get("manifest")}
         return Message(type="LOCAL.DOWNLOAD", status="ok", code=0, payload=payload, message=end_resp.message)
 
-    def update_game(self, username: str, game_name: str):
+    def list_local_games(self, username: str):
+        mgr = self._ensure_local_mgr(username)
+        return mgr.list_downloaded_games()
+
+    def update_game(self, username: str, game_name: str, require_installed: bool = False):
         """
         Download latest version of a game if local copy is missing or outdated.
         """
@@ -257,6 +300,13 @@ class UserClient:
                 return details
             latest_version = str((details.payload.get("game") or {}).get("version", ""))
             local_versions = mgr.list_versions(game_name)
+            if require_installed and not local_versions:
+                return Message(
+                    type="LOCAL.UPDATE",
+                    status="error",
+                    code=1,
+                    message="Game not installed locally. Download it first.",
+                )
             if latest_version and latest_version in local_versions:
                 return Message(
                     type="LOCAL.UPDATE",

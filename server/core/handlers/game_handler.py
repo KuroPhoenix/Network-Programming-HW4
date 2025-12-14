@@ -52,6 +52,15 @@ def start_game(payload: dict, gmLauncher: GameLauncher, genie: RoomGenie, gmgr: 
     :param genie:
     :return:
     """
+    username = payload.get("username")
+    if not username:
+        raise ValueError("username required")
+    room = genie.get_room(payload["room_id"])
+    if room.host != username:
+        raise ValueError("only host can start the game")
+    required_players = 2 if (room.max_players is None or room.max_players >= 2) else 1
+    if len(room.players) < required_players:
+        raise ValueError(f"Not enough players to start. Need at least {required_players}.")
     start_session_info = genie.start_game(payload["room_id"], gmLauncher, gmgr)
     return {"status": "ok", "code": 0, "payload": start_session_info}
 
@@ -86,9 +95,12 @@ def upload_begin(payload: dict, smgr: StorageManager) -> dict:
         "version": str(payload.get("version", "")),
         "description": payload.get("description", ""),
         "max_players": int(payload.get("max_players", 0) or 0),
+        "size_bytes": int(payload.get("size_bytes", 0) or 0) or None,
+        "checksum": payload.get("checksum"),
     }
     upload_id = smgr.init_upload_verification(expected)
-    return {"status": "ok", "code": 0, "payload": {"upload_id": upload_id}}
+    chunk_size = smgr.uploadID_to_info[upload_id].chunk_size if hasattr(smgr, "uploadID_to_info") else 64 * 1024
+    return {"status": "ok", "code": 0, "payload": {"upload_id": upload_id, "chunk_size": chunk_size}}
 
 def download_begin(payload: dict, gmgr: GameManager, smgr: StorageManager) -> dict:
     game_name = payload.get("game_name")
@@ -98,7 +110,12 @@ def download_begin(payload: dict, gmgr: GameManager, smgr: StorageManager) -> di
     if not row:
         return {"status": "error", "code": 103, "message": "NOT_FOUND"}
     download_id = smgr.init_download_verification(row)
-    return {"status": "ok", "code": 0, "payload": {"download_id": download_id, "game": row}}
+    meta = getattr(smgr, "download_meta_cache", {}).get(download_id, {})
+    chunk_size = 64 * 1024
+    payload_resp = {"download_id": download_id, "game": row, "chunk_size": chunk_size}
+    if meta:
+        payload_resp.update(meta)
+    return {"status": "ok", "code": 0, "payload": payload_resp}
 
 def download_chunk(payload: dict, smgr: StorageManager) -> dict:
     download_id = payload["download_id"]
@@ -120,27 +137,41 @@ def upload_chunk(payload: dict, smgr: StorageManager) -> dict:
     upload_id = payload["upload_id"]
     seq = int(payload.get("seq", 0))
     data = b64decode(payload.get("data", ""))
-    smgr.append_chunk(upload_id, data, seq)
-    return {"status": "ok", "code": 0, "payload": {"upload_id": upload_id, "seq": seq}}
+    try:
+        smgr.append_chunk(upload_id, data, seq)
+        return {"status": "ok", "code": 0, "payload": {"upload_id": upload_id, "seq": seq}}
+    except ValueError as e:
+        msg = str(e)
+        if "out-of-order" in msg:
+            return {"status": "error", "code": 120, "message": msg}
+        return {"status": "error", "code": 105, "message": msg}
 
 
 def upload_end(payload: dict, gmgr: GameManager, smgr: StorageManager) -> dict:
     upload_id = payload["upload_id"]
-    result = smgr.finalise_upload(upload_id)
-    manifest = result["manifest"]
-    gmgr.create_game(
-        payload["username"],
-        manifest["game_name"],
-        manifest["type"],
-        manifest["version"],
-        {
-            "path": result["path"],
-            "manifest": result["manifest"],
-            "description": manifest.get("description", ""),
-            "max_players": manifest.get("max_players", 0),
-        },
-    )
-    return {"status": "ok", "code": 0, "payload": result}
+    try:
+        result = smgr.finalise_upload(upload_id)
+        manifest = result["manifest"]
+        gmgr.create_game(
+            payload["username"],
+            manifest["game_name"],
+            manifest["type"],
+            manifest["version"],
+            {
+                "path": result["path"],
+                "manifest": result["manifest"],
+                "description": manifest.get("description", ""),
+                "max_players": manifest.get("max_players", 0),
+            },
+        )
+        return {"status": "ok", "code": 0, "payload": result}
+    except ValueError as e:
+        msg = str(e)
+        if "checksum mismatch" in msg:
+            return {"status": "error", "code": 121, "message": msg}
+        if "size mismatch" in msg or "size overflow" in msg:
+            return {"status": "error", "code": 105, "message": msg}
+        return {"status": "error", "code": 199, "message": msg}
 
 def delete_game(payload: dict, gmgr: GameManager, smgr: StorageManager, reviewMgr=None) -> dict:
     username = payload.get("username")
@@ -169,4 +200,23 @@ def detail_game(payload: dict, mgr: GameManager):
     row = mgr.get_game(game_name)
     if not row:
         return {"status": "error", "code": 103, "message": "NOT_FOUND"}
+    # Enrich with fields expected by store UI
+    row["latest_version"] = row.get("version")
+    row.setdefault("status", "ONLINE")
     return {"status": "ok", "code": 0, "payload": {"game": row}}
+
+
+def latest_version(payload: dict, gmgr: GameManager, smgr: StorageManager) -> dict:
+    game_name = payload.get("game_name")
+    if not game_name:
+        raise ValueError("game_name required")
+    row = gmgr.get_game(game_name)
+    if not row:
+        return {"status": "error", "code": 103, "message": "NOT_FOUND"}
+    stats = smgr.describe_package(game_name, str(row.get("version")), row.get("game_folder"))
+    resp_payload = {
+        "version": str(row.get("version")),
+        "size_bytes": stats.get("size_bytes", 0),
+        "checksum": stats.get("checksum"),
+    }
+    return {"status": "ok", "code": 0, "payload": resp_payload}

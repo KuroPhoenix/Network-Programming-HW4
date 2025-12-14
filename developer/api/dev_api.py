@@ -1,4 +1,6 @@
 import base64
+import json
+import shlex
 import tarfile
 from io import BytesIO
 from pathlib import Path
@@ -66,14 +68,70 @@ class DevClient:
             tar.add(base_dir, arcname=".")
         return buffer.getvalue()
 
+    def _validate_game_dir(self, game_name: str):
+        """
+        Basic sanity checks before upload: manifest present, working dirs exist,
+        and referenced command targets are on disk.
+        """
+        base_dir = Path(__file__).resolve().parent.parent / "games" / game_name
+        manifest_path = base_dir / "manifest.json"
+        if not manifest_path.exists():
+            raise ValueError(f"manifest missing for game: {manifest_path}")
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ValueError(f"failed to read manifest: {exc}") from exc
+
+        def check_side(side: str):
+            info = manifest.get(side) or {}
+            working_dir = info.get("working_dir", ".")
+            work_path = (base_dir / working_dir).resolve()
+            if not work_path.exists():
+                raise ValueError(f"{side} working_dir not found: {work_path}")
+            if not work_path.is_dir():
+                raise ValueError(f"{side} working_dir is not a directory: {work_path}")
+            cmd = info.get("command", "")
+            tokens = shlex.split(cmd) if cmd else []
+            candidates = []
+            for tok in tokens:
+                if "{" in tok or "}" in tok:
+                    continue
+                if tok.startswith("-"):
+                    continue
+                if tok in {"python", "python3", "bash", "sh", "node", "java"}:
+                    continue
+                if "/" in tok or tok.startswith(".") or tok.endswith((".py", ".js", ".sh", ".exe", ".out", ".bin", ".jar", ".rb", ".pl")):
+                    candidates.append(tok)
+            for cand in candidates:
+                cand_path = Path(cand)
+                if not cand_path.is_absolute():
+                    cand_path = work_path / cand_path
+                if cand_path.exists():
+                    return
+            if candidates:
+                raise ValueError(f"{side} command target not found: {', '.join(candidates)} (cwd {work_path})")
+            # No obvious target; at least ensure the working dir has some files.
+            has_files = any(p.is_file() for p in work_path.iterdir())
+            if not has_files:
+                raise ValueError(f"{side} working_dir has no files: {work_path}")
+
+        check_side("server")
+        check_side("client")
+
     def uploadGame(self, username: str, payload: dict[str, Any]):
+        self._validate_game_dir(payload["game_name"])
         # Begin upload
+        data = self._pack_game(payload["game_name"])
+        size_bytes = len(data)
+        checksum = __import__("hashlib").sha256(data).hexdigest()
         begin_payload = {
             "game_name": payload["game_name"],
             "type": payload["game_type"],
             "version": payload.get("version", "0"),
             "description": payload.get("description", ""),
             "max_players": payload.get("max_players", 0),
+            "size_bytes": size_bytes,
+            "checksum": checksum,
         }
         resp = send_request(self.conn, self.file, self.token, GAME_UPLOAD_BEGIN, begin_payload)
         if resp.status != "ok":
@@ -81,10 +139,9 @@ class DevClient:
         upload_id = resp.payload.get("upload_id")
         if not upload_id:
             raise ValueError("Upload begin missing upload_id")
+        chunk_size = int(resp.payload.get("chunk_size", 64 * 1024))
 
         # Stream chunks
-        data = self._pack_game(payload["game_name"])
-        chunk_size = 64 * 1024
         seq = 0
         for offset in range(0, len(data), chunk_size):
             chunk = data[offset : offset + chunk_size]
