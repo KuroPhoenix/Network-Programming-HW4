@@ -21,23 +21,34 @@ This describes how the three codebases in this repo talk to each other and where
 
 ## Data and file layout
 - Persistent data: `server/data/` (user accounts, games, versions, reviews, rooms). Must survive server restart.
-- Uploaded games: `server/uploadedGame/<game_id>/<version>/...` with `manifest.json` inside each version folder. Only servers write here.
+- Uploaded games: `server/cloudGames/<GameName>/<version>/...` with `manifest.json` and all code/assets. Only servers write here (via uploads).
 - Developer local workspace: `developer/games/` and `developer/template/` (not used by players directly).
 - Player installs: `user/downloads/<PlayerName>/<GameName>/<version>/...` created only through downloads, never edited manually.
 
 ## Manifest (server-stored with each version)
-Minimal required fields:
+Minimal required fields (actual repo uses `server/cloudGames/<Game>/<version>/manifest.json`):
 ```json
 {
   "game_name": "tictactoe",
   "version": "1.0.0",
-  "type": "cli" | "gui",
+  "type": "cli" | "gui" | "multi",
   "max_players": 2,
-  "server_command": "python server/main.py --port {port} --room {room_id}",
-  "client_command": "python client/main.py --host {host} --port {port} --player {player_name}"
+  "description": "...",
+  "server": {
+    "command": "python3 server.py --port {port} --room {room_id} --token {token} --p1 {p1} --p2 {p2}",
+    "working_dir": ".",
+    "env": { "ROOM_ID": "{room_id}", "PORT": "{port}", "TOKEN": "{token}" }
+  },
+  "client": {
+    "command": "python3 client.py --host {host} --port {port} --player {player_name} --token {token}",
+    "working_dir": ".",
+    "env": { "PLAYER_NAME": "{player_name}", "ROOM_TOKEN": "{token}" }
+  },
+  "assets": ["assets/*"],                // optional list of asset globs packaged with the game
+  "healthcheck": { "tcp_port": "{port}", "timeout_sec": 5 }
 }
 ```
-Placeholders in braces are filled by lobby/player client at runtime. Add more fields as needed (assets, description, etc.).
+Placeholders in braces are filled by lobby/player client at runtime. All files referenced by commands and `assets` must be present in the uploaded archive so the server can store them under `server/cloudGames/...` and players can download them into `user/downloads/...`.
 
 ## Key flows (align with HW Use Cases)
 - D1 (Upload new game):

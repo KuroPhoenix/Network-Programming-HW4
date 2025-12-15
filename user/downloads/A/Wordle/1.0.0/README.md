@@ -26,11 +26,8 @@ python3 client.py --host 127.0.0.1 --port 9000 --player Carol --token SECRET --s
 - Server messages:
   - `ok`: acknowledges handshake.
   - `state`: progress update. For players it includes your board, attempts left, and opponent summary; for spectators it lists player progress counts.
-- `error`: validation errors (bad word, unknown command, etc.).
-- `game_over`: winner/loser/reason.
-
-## Word list
-- The server tries to load a larger 5-letter dictionary from `assets/words.txt` (one word per line). If absent, it falls back to system dictionaries (`/usr/share/dict/...`) and finally the bundled default list. All loaded words become both target choices and allowed guesses.
+  - `error`: validation errors (bad word, unknown command, etc.).
+  - `game_over`: winner/loser/reason.
 
 ## Integration notes
 - Manifest commands include placeholders `{host}`, `{port}`, `{room_id}`, `{token}`, `{p1}`, `{p2}`, `{player_name}`, `{report_host}`, `{report_port}`, `{report_token}`.

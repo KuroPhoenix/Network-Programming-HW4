@@ -6,13 +6,14 @@ This folder holds store-ready games that can be uploaded and run by the platform
 - Each game lives in `developer/games/<GameName>/`.
 - Must contain `manifest.json` describing how to launch server/client.
 - Include all code/assets needed to run; do not reach outside the game folder at runtime.
+- Package optional assets (art, dictionaries, maps, sounds) under the game folder, ideally under `assets/`, and reference them via the manifest `assets` glob so uploads include them.
 
 ## Manifest requirements
 See `developer/template/manifest_template.json` for shape. Required fields:
 - `game_name`, `version`, `type` (`CLI|GUI|2P|Multi`), `description`, `max_players`.
 - `server.command` and `client.command`: use placeholders `{host}`, `{port}`, `{room_id}`, `{token}`, `{player_name}`, `{p1}`, `{p2}`, `{report_host}`, `{report_port}`, `{report_token}`. GameLauncher fills these.
 - `server.working_dir` / `client.working_dir`: relative to the game root.
-- `assets` list and optional `healthcheck`.
+- `assets` list (globs) and optional `healthcheck`. Any file matching `assets` is shipped with the upload and later downloaded to players. Put bulky data (e.g., dictionaries, sprites, sounds) under `assets/`.
 - Optional `env` maps for server/client are allowed; values can also use placeholders.
 The server stores the manifest with each uploaded version; keep it accurate.
 

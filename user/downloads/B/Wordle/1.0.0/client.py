@@ -56,18 +56,6 @@ def prompt_guess(target_len: int) -> dict:
     return {"type": "guess", "word": raw}
 
 
-def print_rules(target_len: int, max_attempts: int):
-    print(
-        f"""
-=== How to Play ===
-- You and your opponent solve the same {target_len}-letter word.
-- Each guess returns: G = correct letter/place, Y = letter in word wrong place, . = absent.
-- You have {max_attempts} attempts. First to solve wins; if time runs out, best board wins.
-- Type 'surrender' to forfeit.
-"""
-    )
-
-
 def main():
     parser = argparse.ArgumentParser(description="Wordle duel client.")
     parser.add_argument("--host", required=True)
@@ -89,7 +77,6 @@ def main():
     role = "spectator" if args.spectator else "player"
     send_json(conn, {"type": "hello", "player": args.player, "token": args.token, "role": role})
 
-    printed_rules = False
     try:
         while True:
             msg = recv_json(conn)
@@ -99,17 +86,12 @@ def main():
             mtype = msg.get("type")
             if mtype == "ok":
                 print(f"Connected as {role}. Waiting for updates...")
-                # Show rules once on connect.
-                print_rules(target_len=5, max_attempts=6)
             elif mtype == "state":
                 if role == "spectator" and "players" in msg:
                     print("\n=== Spectator View ===")
                     for pname, info in (msg.get("players") or {}).items():
                         print(f"{pname}: guesses={info.get('guesses')} solved={info.get('solved')} attempts_left={info.get('attempts_left')}")
                     continue
-                if not printed_rules:
-                    print_rules(target_len=msg.get("target_length", 5), max_attempts=msg.get("max_attempts", 6))
-                    printed_rules = True
                 print_player_state(msg)
                 if not args.spectator and not msg.get("solved") and msg.get("attempts_left", 0) > 0:
                     play = prompt_guess(msg.get("target_length", 5))

@@ -5,7 +5,6 @@ import socket
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
@@ -31,7 +30,7 @@ def recv_json(conn: socket.socket) -> Optional[Dict]:
         return None
 
 
-DEFAULT_TARGETS = [
+TARGET_WORDS = [
     "apple",
     "cabin",
     "crane",
@@ -73,53 +72,31 @@ DEFAULT_TARGETS = [
     "swift",
 ]
 
-
-def _load_dictionary_words() -> List[str]:
-    """
-    Try to load a larger 5-letter word list from assets/words.txt or system dictionaries.
-    Falls back to the bundled defaults if nothing is found.
-    """
-    candidates: set[str] = set()
-    assets_path = Path(__file__).parent / "assets" / "words.txt"
-    system_dicts = [
-        Path("/usr/share/dict/words"),
-        Path("/usr/share/dict/american-english"),
-        Path("/usr/share/dict/british-english"),
-    ]
-
-    def load_from_path(path: Path) -> List[str]:
-        if not path.exists():
-            return []
-        try:
-            with path.open("r", encoding="utf-8", errors="ignore") as f:
-                return [line.strip().lower() for line in f if line.strip()]
-        except Exception:
-            return []
-
-    # Prefer bundled assets if present.
-    for word in load_from_path(assets_path):
-        if len(word) == 5 and word.isalpha():
-            candidates.add(word.lower())
-
-    # Fall back to system dictionaries.
-    if not candidates:
-        for sys_path in system_dicts:
-            for word in load_from_path(sys_path):
-                if len(word) == 5 and word.isalpha():
-                    candidates.add(word.lower())
-            if candidates:
-                break
-
-    # Final fallback to defaults.
-    if not candidates:
-        candidates.update(DEFAULT_TARGETS)
-    return sorted(candidates)
-
-
-_ALL_WORDS = _load_dictionary_words()
-# Use the loaded words as both targets and allowed guesses to keep the rules consistent.
-TARGET_WORDS = list(_ALL_WORDS)
-ALLOWED_GUESSES = set(_ALL_WORDS)
+# Accept any target word as a valid guess. For non-target guesses, this set keeps the game honest.
+ALLOWED_GUESSES = set(TARGET_WORDS + [
+    "adore",
+    "arise",
+    "beads",
+    "brave",
+    "cable",
+    "chair",
+    "delta",
+    "frost",
+    "gloom",
+    "ideal",
+    "joint",
+    "latch",
+    "mirth",
+    "novel",
+    "pouch",
+    "quirk",
+    "rough",
+    "scrap",
+    "their",
+    "ultra",
+    "vapor",
+    "weary",
+])
 
 
 class PlayerState:

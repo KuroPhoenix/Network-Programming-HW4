@@ -1,8 +1,8 @@
 # HW4 Network Programming User Manual
 
 Menu-driven platform with two roles: developers upload and manage games; players browse the store, download games, join rooms, play, and leave reviews. Two TCP servers power the system:
-- Developer server: `127.0.0.1:16533`
-- User/lobby server: `127.0.0.1:16534`
+- Developer server: `140.113.17.11:16533`
+- User/lobby server: `140.113.17.11:16534`
 
 Data lives under `server/data/` (SQLite), game binaries/manifests under `server/cloudGames/`, player downloads under `user/downloads/`, and logs in `logs/`.
 
