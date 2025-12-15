@@ -1,5 +1,174 @@
 # HW4 Network Programming User Manual
 
+
+
+## Prerequisites
+- Python 3.10+ and `pip`
+- `tmux` (needed for the bundled `run.sh` convenience script)
+- A shell that can run bash scripts
+
+## Setup
+For the user client setup, from root:
+```bash
+cd ../../mnt/c/Users/kurop/OneDrive/Desktop/University/Network\ Programming/HW3
+source .venv/bin/activate
+python -m user.user_cli
+```
+Open another page in terminal. From root, do
+```bash
+cd ../../mnt/c/Users/kurop/OneDrive/Desktop/University/Network\ Programming/HW3
+source .venv/bin/activate
+python -m developer.dev_cli
+```
+## Starting the servers (Done already)
+
+### Manual (separate terminals)
+
+#### Dev Server
+From Linux remote root:
+```bash
+bash
+rm -rf Network-Programming-HW4/
+git clone https://github.com/KuroPhoenix/Network-Programming-HW4.git
+source .venv/bin/activate
+cd Network-Programming-HW4/ && python -m server.dev_server
+```
+
+#### User Server
+From Linux remote root (If Project is not installed):
+```bash
+bash
+rm -rf Network-Programming-HW4/
+git clone https://github.com/KuroPhoenix/Network-Programming-HW4.git
+cd Network-Programming-HW4/
+source .venv/bin/activate
+cd Network-Programming-HW4/ && python -m server.user_server
+```
+From Linux remote root (If Project is installed):
+```bash
+bash
+cd Network-Programming-HW4/
+source .venv/bin/activate
+cd Network-Programming-HW4/ && python -m server.user_server
+```
+
+
+## Player manual (`python -m user.user_cli`)
+Use the numbers shown in each menu. Every goal below is a path of choices (menus → options).
+
+- **Log in / Register**
+  - Main Menu: `1 Register` → enter username/password, or `2 Login` → enter username/password.
+
+- **Download a game**
+  - Main Menu: `1 Visit Store` → choose a game → `3 Download game`.
+
+- **Update a game to latest**
+  - Path A: Main Menu: `1 Visit Store` → choose a game → `4 Update to latest version`.
+  - Path B: Main Menu: `4 View my downloaded games` → pick game → `3 Update to latest version`.
+
+- **Delete local copy**
+  - Path A: Main Menu: `1 Visit Store` → choose a game → `5 Delete local copy`.
+  - Path B: Main Menu: `4 View my downloaded games` → pick game → `4 Delete game`.
+
+- **View game details / reviews**
+  - Main Menu: `1 Visit Store` → choose a game → `1 View game details` or `2 View game reviews`.
+  - Local copy route: Main Menu: `4 View my downloaded games` → pick game → `1 View game details` or `2 View game reviews`.
+
+- **Create a room (host)**
+  - Main Menu: `2 Visit Lobby` → `4 Create room` → pick a downloaded game → name the room.
+
+- **Join a room**
+  - Main Menu: `2 Visit Lobby` → `5 Join room` → enter room id.
+
+- **Ready up (guest)**
+  - After joining room: Room Menu shows `Ready up` → pick `1 Ready up`.
+
+- **Start game (host)**
+  - After players are ready: Room Menu shows `Start game` → pick `1 Start game`.
+
+- **Launch started game (if you rejoin mid-game)**
+  - Room Menu when status is IN_GAME: choose `Launch started game`.
+
+- **Leave room**
+  - Room Menu: choose `Leave room`.
+
+- **Give a review (after you played)**
+  - Main Menu: `1 Visit Store` → choose a game → `6 Give this game a review` (only works if play history exists).
+
+- **Edit/Delete your review**
+  - Main Menu: `3 View my reviews` → pick a review → `Edit this review` or `Delete this review`.
+
+- **View installed games**
+  - Main Menu: `4 View my downloaded games` → pick a game.
+
+- **Logout**
+  - Main Menu: `5 Logout`.
+
+
+## Developer manual (`python -m developer.dev_cli`)
+Choice paths for common tasks:
+
+- **Log in / Register (developer)**
+  - Main Menu: `1 Register` → enter username/password, or `2 Login` → enter username/password.
+
+- **Create or update a manifest locally**
+  - Main Menu: `create` → follow prompts (creates/updates `developer/games/<GameName>/manifest.json`).
+
+- **Inspect local manifests**
+  - Main Menu: `list` → browse local manifests; select to view JSON.
+
+- **Upload a game/version to the store**
+  - Main Menu: `list` → select a local manifest → confirm upload (tars `developer/games/<GameName>/` and streams to dev server).
+
+- **List games on the server**
+  - Main Menu: `list` (after local view, it also shows server-side entries).
+
+- **Delete a game from the store**
+  - Main Menu: `delete` → pick a game → confirm delete (removes all versions server-side).
+
+- **Delete local game folder**
+  - Main Menu: `delete_local` → pick a local game → confirm.
+
+- **List online developers**
+  - Main Menu: `list_developers`.
+
+- **Logout**
+  - Main Menu: `logout`.
+
+## Built-in sample game
+dev sample accounts (username, password):
+
+(bob, peter)
+
+(stan, s)
+- Wordle 1.0.0 (CLI, 2 players) author: bob
+- BigTwo (CLI, 2 players) author: bob
+- Tetris (GUI, 2 players) author: bob
+- RockPaperScissors (CLI, 2 players) author: stan
+
+## Tip: AI prompt for game generation:
+1. Ensure your manifest is created via "Create manifest".
+2. Open AI, and type in the following prompt and replace <game_name> and <username> as one see fit.:
+
+```aiignore
+design a <game_name> game under developer/games/<username> while following the game spec design md file allied with the given manifest. Implement the game based on these two files, and you may not modify these two files in any way, you may only design your program based on the two files. 
+```
+
+## Logs and data
+- Logs directory: `logs/` (`user_server.log`, `dev_server.log`, `game_launcher_errors.log`, `room_genie.log`, `auth_errors.log`, etc.). Server boot truncates the per-service log file.
+- Databases: `server/data/auth.db` (accounts/sessions), `server/data/game.db` (store entries), `server/data/reviews.db` (reviews/play_history).
+- Player downloads/install cache: `user/downloads/<username>/<game>/<version>/`.
+- Game uploads: `server/cloudGames/<Game>/<version>/` plus manifests kept with the upload.
+
+## Common issues
+- **Ports busy**: Make sure 16533/16534 are free before starting servers.
+- **tmux missing**: Install tmux or start servers manually as shown above.
+- **Upload validation fails**: Check manifest `server/client` commands and working dirs point to real files in `developer/games/<GameName>/`.
+- **Review rejected**: You must have played the specific game/version (play history enforced) before adding a review.
+
+
+
+# HW4 Architecture
 Menu-driven platform with two roles: developers upload and manage games; players browse the store, download games, join rooms, play, and leave reviews. Two TCP servers power the system:
 - Developer server: `140.113.17.11:16533`
 - User/lobby server: `140.113.17.11:16534`
@@ -17,132 +186,6 @@ Data lives under `server/data/` (SQLite), game binaries/manifests under `server/
 - Built-in games: `server/cloudGames/<GameName>/<version>/`
 - Player downloads/install cache: `user/downloads/<username>/<game>/<version>/`
 - Convenience runner: `run.sh`
-
-## Prerequisites
-- Python 3.10+ and `pip`
-- `tmux` (needed for the bundled `run.sh` convenience script)
-- A shell that can run bash scripts
-
-## Setup
-From the repo root:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-export PYTHONPATH="$(pwd)"
-```
-
-## Starting the servers
-### Easiest (tmux)
-```bash
-./run.sh
-```
-This creates/activates `.venv`, installs `loguru`, and launches two tmux windows (`user_server` and `dev_server`). Detach with `Ctrl+B` `D`; reattach with `tmux attach -t hw3`. Kill with `tmux kill-session -t hw3`.
-
-### Manual (separate terminals)
-```bash
-export PYTHONPATH="$(pwd)"
-python -m server.user_server   # port 16534
-python -m server.dev_server    # port 16533
-```
-
-## Player manual (`python -m user.user_cli`)
-- Entry point: `user/user_cli.py`; networking in `user/api/user_api.py`.
-- **Login/Register**: Use the menu (main menu in `shared/main_menu.py`). Sample player accounts in `server/data/auth.db`: `kuro/k`, `shiro/s`, `a/a`, `b/b`; you can register new ones.
-- **Store** (`visit_store` flow in `user/user_cli.py`):
-  - Lists games from `server/data/game.db` via `GAME.LIST` (`server/core/handlers/game_handler.py`).
-  - View details (`GAME.GET_DETAILS`), download (`GAME.DOWNLOAD_*`) saves to `user/downloads/<username>/<game>/<version>/`.
-  - Update/delete local copies using `user/utils/local_game_manager.py`.
-  - View reviews via `REVIEW.SEARCH_GAME` (`server/core/review_manager.py`).
-- **Play** (`visit_lobby` flow):
-  1. Ensure the game is downloaded (Wordle 1.0.0 bundled in `server/cloudGames/Wordle/1.0.0`).
-  2. Create room (`LOBBY.CREATE_ROOM`) or join (`LOBBY.JOIN_ROOM`) handled by `server/core/room_genie.py`.
-  3. Ready (`ROOM.READY`) and host starts game (`GAME.START` → launches `server/core/game_launcher.py`).
-  4. Local game client auto-starts from manifest commands in `user/utils/local_game_manager.py` and the downloaded `manifest.json`.
-  5. When the game reports END/ERROR (`GAME.REPORT`), room state resets in `room_genie.py`.
-- **Reviews**:
-  - Eligibility tracked in `server/data/reviews.db` (`play_history` table).
-  - Add/edit/delete via `REVIEW.ADD/EDIT/DELETE` handlers in `server/core/handlers/review_handler.py`.
-- **Logout**: `ACCOUNT.LOGOUT_PLAYER` route in `server/core/handlers/auth_handler.py`.
-
-## Developer manual (`python -m developer.dev_cli`)
-- Entry point: `developer/dev_cli.py`; networking in `developer/api/dev_api.py`.
-- **Login/Register**: Uses `ACCOUNT.REGISTER_DEVELOPER` / `ACCOUNT.LOGIN_DEVELOPER` (`server/core/handlers/auth_handler.py`).
-- **Local workspace**: `developer/games/<GameName>/manifest.json` plus server/client code referenced by the manifest.
-- **Create/Update manifest**: Menu action `create` uses `developer/util/local_game_manager.py` to scaffold defaults (commands/env for server/client).
-- **Upload**:
-  1. `dev_api._validate_game_dir` ensures manifest commands and working dirs exist.
-  2. `uploadGame` tars `developer/games/<GameName>/` and streams with `GAME.UPLOAD_BEGIN/CHUNK/END` handlers in `server/core/handlers/game_handler.py`; stored under `server/cloudGames/<Game>/<version>/`.
-  3. Latest version becomes visible to players via `GAME.LIST`/`GAME.GET_DETAILS`.
-- **Manage store entries**: `GAME.DELETE_GAME` removes all versions (handler in `game_handler.py`; also prunes reviews via `review_manager.py`). `delete_local` removes your local folder.
-- **Logout**: `ACCOUNT.LOGOUT_DEVELOPER`.
-
-## Built-in sample game
-- Wordle 1.0.0 (CLI, 2 players) lives at `server/cloudGames/Wordle/1.0.0/` with `manifest.json`, `server.py`, `client.py`, `README.md`. It is pre-published in `server/data/game.db` and ready for players to download/play.
-
-## Logs and data
-- Logs directory: `logs/` (`user_server.log`, `dev_server.log`, `game_launcher_errors.log`, `room_genie.log`, `auth_errors.log`, etc.). Server boot truncates the per-service log file.
-- Databases: `server/data/auth.db` (accounts/sessions), `server/data/game.db` (store entries), `server/data/reviews.db` (reviews/play_history).
-- Player downloads/install cache: `user/downloads/<username>/<game>/<version>/`.
-- Game uploads: `server/cloudGames/<Game>/<version>/` plus manifests kept with the upload.
-
-## Common issues
-- **Ports busy**: Make sure 16533/16534 are free before starting servers.
-- **tmux missing**: Install tmux or start servers manually as shown above.
-- **Upload validation fails**: Check manifest `server/client` commands and working dirs point to real files in `developer/games/<GameName>/`.
-- **Review rejected**: You must have played the specific game/version (play history enforced) before adding a review.
-
-## Architecture overview
-- **Servers (processes)**  
-  - `server/user_server.py`: player auth, store, downloads, lobby/rooms, game start/report, reviews (port 16534). Dispatch table in this file routes to handlers below.  
-  - `server/dev_server.py`: developer auth, game listing/upload/delete (port 16533).  
-  - Both rely on `server/util/net.py` (listener/serve loop) and `server/core/config.py` (hosts/ports).
-
-- **Core modules**  
-  - Auth (`server/core/auth.py`): Validates tokens, stores sessions; handlers in `server/core/handlers/auth_handler.py` translate protocol names (`ACCOUNT.*`) to Auth methods.  
-  - Game catalog/storage:  
-    - `server/core/game_manager.py`: CRUD on `game.db`, listing games, fetching details, marking latest versions.  
-    - `server/core/storage_manager.py`: Streamed upload/download verification, chunk ordering, checksum; writes uploads to `server/cloudGames/...` and serves download chunks.  
-    - Handlers in `server/core/handlers/game_handler.py` convert protocol requests to manager calls, format payloads, and enforce flow (UPLOAD_BEGIN/CHUNK/END, DOWNLOAD_BEGIN/CHUNK/END, GAME.START, GAME.REPORT).  
-  - Rooms/lobby:  
-    - `server/core/room_genie.py`: In-memory room state, ready sets, host reassignment, game state reset, play history hooks.  
-    - `server/core/handlers/lobby_handler.py`: Request adapters for `LOBBY.*` and `ROOM.READY/GET`.  
-  - Game launcher: `server/core/game_launcher.py`: Loads manifest, renders command with `{host,port,room_id,token,p1,p2,...}`, allocates port, starts subprocess, tracks/cleans it; used by `room_genie.start_game`.  
-  - Reviews/play history: `server/core/review_manager.py`: `reviews.db` (`reviews`, `play_history`), enforces eligibility; handlers in `server/core/handlers/review_handler.py`.  
-  - Protocol constants: `server/core/protocol.py`; transport helpers `shared/net.py` (connect/send_request) marshal JSON envelopes with `status/code/payload`.
-
-- **Clients**  
-  - Player CLI: `user/user_cli.py` → `user/api/user_api.py`; local install management in `user/utils/local_game_manager.py`; download integrity in `user/utils/download_wizard.py`; menus under `user/ui` + `shared/main_menu.py`.  
-  - Developer CLI: `developer/dev_cli.py` → `developer/api/dev_api.py`; local manifest mgmt in `developer/util/local_game_manager.py`; menus under `developer/ui`.  
-  - Both CLIs use menu-driven flows (no extra shell args once launched).
-
-- **Data/layout**  
-  - DBs: `server/data/auth.db` (users/sessions), `server/data/game.db` (store entries), `server/data/reviews.db` (reviews/play_history).  
-  - Uploaded games: `server/cloudGames/<Game>/<version>/manifest.json` + code/assets.  
-  - Player installs: `user/downloads/<username>/<game>/<version>/` with copied manifest used for local launch.  
-  - Logs: `logs/` (per-module files; truncated on server start).
-
-- **Game lifecycle (Wordle example)**  
-  1) Host creates room (`LOBBY.CREATE_ROOM` → `room_genie.create_room`).  
-  2) Guests join/ready (`LOBBY.JOIN_ROOM` / `ROOM.READY`).  
-  3) Host starts game (`GAME.START` → `room_genie.start_game` → `game_launcher.launch_room` spawns `server/cloudGames/Wordle/1.0.0/server.py`).  
-  4) Clients auto-launch from downloaded manifest (commands in `manifest.json`).  
-  5) Game reports status via `GAME.REPORT` to `user_server`; `room_genie` resets room and records play history for review eligibility.
-
-- **Message/request flow**  
-  - Transport: newline-delimited JSON; each frame is `{type, token, payload, ...}` (`shared/net.py`).  
-  - Server dispatch: `user_server.py` / `dev_server.py` map `type` → handler; non-auth types enforce `require_token` (`server/util/validator.py`) then add `username/author/role` into payload.  
-  - Store/download: `GAME.LIST/GET_DETAILS` → `game_manager`; `GAME.DOWNLOAD_BEGIN/CHUNK/END` → `storage_manager` (chunks read/written, chunk ordering enforced).  
-  - Upload: `GAME.UPLOAD_*` (dev side) → `storage_manager` to validate chunk order/checksum, then `game_manager` to register new version; manifest and assets stored under `server/cloudGames/...`.  
-  - Lobby/rooms: `LOBBY.*`, `ROOM.READY/GET` → `room_genie`; `ROOM.GET` returns full room snapshot.  
-  - Game start: `GAME.START` (host only) → `room_genie.start_game` (validates ready players/version match) → `game_launcher.launch_room` returns `{host,port,token}` in payload for clients to launch.  
-  - Game report: running game server sends `GAME.REPORT` (status RUNNING/END/ERROR) back to `user_server` → `room_genie` updates state, stops process, and writes play history for review eligibility.  
-  - Reviews: `REVIEW.ADD/EDIT/DELETE/SEARCH_*` → `review_manager`; add/edit enforce play-history eligibility.  
-  - Clients: `user_api.py` / `dev_api.py` wrap `send_request`, preserve session token, and orchestrate local side effects (downloads to disk, launching local game client via manifest).
-
-
-# HW4 Architecture Explanation
-
 ```aiignore
 kurophoenix@BlackLeopard:/mnt/c/Users/kurop/OneDrive/Desktop/University/Network Programming/HW3$ tree
 .
@@ -189,6 +232,7 @@ kurophoenix@BlackLeopard:/mnt/c/Users/kurop/OneDrive/Desktop/University/Network 
 │   │   │   ├── tetris_game.hpp
 │   │   │   ├── tetris_runtime.cpp
 │   │   │   ├── tetris_runtime.hpp
+│   │   │   ├── tetris_server.cpp
 │   │   │   └── tetris_server.cpp
 │   │   ├── Wordle
 │   │   │   ├── README.md
@@ -246,102 +290,53 @@ kurophoenix@BlackLeopard:/mnt/c/Users/kurop/OneDrive/Desktop/University/Network 
 │   │   │       ├── playerB.cpp
 │   │   │       ├── server.py
 │   │   │       └── tools.cpp
-│   │   ├── Wordle
-│   │   │   └── 1.0.0
-│   │   │       ├── README.md
-│   │   │       ├── __pycache__
-│   │   │       │   └── server.cpython-312.pyc
-│   │   │       ├── client.py
-│   │   │       ├── manifest.json
-│   │   │       └── server.py
-│   │   └── tmp
-│   ├── core
-│   │   ├── __pycache__
-│   │   │   ├── auth.cpython-312.pyc
-│   │   │   ├── config.cpython-312.pyc
-│   │   │   ├── game_launcher.cpython-312.pyc
-│   │   │   ├── game_manager.cpython-312.pyc
-│   │   │   ├── protocol.cpython-312.pyc
-│   │   │   ├── review_manager.cpython-312.pyc
-│   │   │   ├── room_genie.cpython-312.pyc
-│   │   │   └── storage_manager.cpython-312.pyc
-│   │   ├── auth.py
-│   │   ├── config.py
-│   │   ├── game_launcher.py
-│   │   ├── game_manager.py
-│   │   ├── handlers
-│   │   │   ├── __pycache__
-│   │   │   │   ├── auth_handler.cpython-312.pyc
-│   │   │   │   ├── game_handler.cpython-312.pyc
-│   │   │   │   ├── lobby_handler.cpython-312.pyc
-│   │   │   │   └── review_handler.cpython-312.pyc
-│   │   │   ├── auth_handler.py
-│   │   │   ├── game_handler.py
-│   │   │   ├── lobby_handler.py
-│   │   │   └── review_handler.py
-│   │   ├── protocol.py
-│   │   ├── review_manager.py
-│   │   ├── room_genie.py
-│   │   └── storage_manager.py
-│   ├── data
-│   │   ├── auth.db
-│   │   ├── game.db
-│   │   └── reviews.db
-│   ├── dev_server.py
-│   ├── user_server.py
-│   └── util
-│       ├── __pycache__
-│       │   ├── net.cpython-312.pyc
-│       │   └── validator.cpython-312.pyc
-│       ├── net.py
-│       └── validator.py
-├── shared
-│   ├── __pycache__
-│   │   ├── input_helpers.cpython-312.pyc
-│   │   ├── logger.cpython-312.pyc
-│   │   ├── main_menu.cpython-312.pyc
-│   │   └── net.cpython-312.pyc
-│   ├── input_helpers.py
-│   ├── logger.py
-│   ├── main_menu.py
-│   └── net.py
-└── user
-    ├── __pycache__
-    │   └── user_cli.cpython-312.pyc
-    ├── api
-    │   ├── __init__.py
-    │   ├── __pycache__
-    │   │   ├── __init__.cpython-312.pyc
-    │   │   └── user_api.cpython-312.pyc
-    │   └── user_api.py
-    ├── downloads
-    │   ├── kuro
-    │   │   ├── Wordle
-    │   │   │   └── 1.0.0
-    │   │   │       ├── README.md
-    │   │   │       ├── client.py
-    │   │   │       ├── manifest.json
-    │   │   │       └── server.py
-    │   │   └── tmp
-    │   └── shiro
-    │       ├── Wordle
-    │       │   └── 1.0.0
-    │       │       ├── README.md
-    │       │       ├── client.py
-    │       │       ├── manifest.json
-    │       │       └── server.py
-    │       └── tmp
-    ├── plugins
-    ├── ui
-    │   ├── __pycache__
-    │   │   └── user_menu.cpython-312.pyc
-    │   └── user_menu.py
-    ├── user_cli.py
-    └── utils
-        ├── __pycache__
-        │   ├── download_wizard.cpython-312.pyc
-        │   └── local_game_manager.cpython-312.pyc
-        ├── download_wizard.py
-        └── local_game_manager.py
 
 ```
+## Architecture overview
+- **Servers (processes)**  
+  - `server/user_server.py`: player auth, store, downloads, lobby/rooms, game start/report, reviews (port 16534). Dispatch table in this file routes to handlers below.  
+  - `server/dev_server.py`: developer auth, game listing/upload/delete (port 16533).  
+  - Both rely on `server/util/net.py` (listener/serve loop) and `server/core/config.py` (hosts/ports).
+
+- **Core modules**  
+  - Auth (`server/core/auth.py`): Validates tokens, stores sessions; handlers in `server/core/handlers/auth_handler.py` translate protocol names (`ACCOUNT.*`) to Auth methods.  
+  - Game catalog/storage:  
+    - `server/core/game_manager.py`: CRUD on `game.db`, listing games, fetching details, marking latest versions.  
+    - `server/core/storage_manager.py`: Streamed upload/download verification, chunk ordering, checksum; writes uploads to `server/cloudGames/...` and serves download chunks.  
+    - Handlers in `server/core/handlers/game_handler.py` convert protocol requests to manager calls, format payloads, and enforce flow (UPLOAD_BEGIN/CHUNK/END, DOWNLOAD_BEGIN/CHUNK/END, GAME.START, GAME.REPORT).  
+  - Rooms/lobby:  
+    - `server/core/room_genie.py`: In-memory room state, ready sets, host reassignment, game state reset, play history hooks.  
+    - `server/core/handlers/lobby_handler.py`: Request adapters for `LOBBY.*` and `ROOM.READY/GET`.  
+  - Game launcher: `server/core/game_launcher.py`: Loads manifest, renders command with `{host,port,room_id,token,p1,p2,...}`, allocates port, starts subprocess, tracks/cleans it; used by `room_genie.start_game`.  
+  - Reviews/play history: `server/core/review_manager.py`: `reviews.db` (`reviews`, `play_history`), enforces eligibility; handlers in `server/core/handlers/review_handler.py`.  
+  - Protocol constants: `server/core/protocol.py`; transport helpers `shared/net.py` (connect/send_request) marshal JSON envelopes with `status/code/payload`.
+
+- **Clients**  
+  - Player CLI: `user/user_cli.py` → `user/api/user_api.py`; local install management in `user/utils/local_game_manager.py`; download integrity in `user/utils/download_wizard.py`; menus under `user/ui` + `shared/main_menu.py`.  
+  - Developer CLI: `developer/dev_cli.py` → `developer/api/dev_api.py`; local manifest mgmt in `developer/util/local_game_manager.py`; menus under `developer/ui`.  
+  - Both CLIs use menu-driven flows (no extra shell args once launched).
+
+- **Data/layout**  
+  - DBs: `server/data/auth.db` (users/sessions), `server/data/game.db` (store entries), `server/data/reviews.db` (reviews/play_history).  
+  - Uploaded games: `server/cloudGames/<Game>/<version>/manifest.json` + code/assets.  
+  - Player installs: `user/downloads/<username>/<game>/<version>/` with copied manifest used for local launch.  
+  - Logs: `logs/` (per-module files; truncated on server start).
+
+- **Game lifecycle (Wordle example)**  
+  1) Host creates room (`LOBBY.CREATE_ROOM` → `room_genie.create_room`).  
+  2) Guests join/ready (`LOBBY.JOIN_ROOM` / `ROOM.READY`).  
+  3) Host starts game (`GAME.START` → `room_genie.start_game` → `game_launcher.launch_room` spawns `server/cloudGames/Wordle/1.0.0/server.py`).  
+  4) Clients auto-launch from downloaded manifest (commands in `manifest.json`).  
+  5) Game reports status via `GAME.REPORT` to `user_server`; `room_genie` resets room and records play history for review eligibility.
+
+- **Message/request flow**  
+  - Transport: newline-delimited JSON; each frame is `{type, token, payload, ...}` (`shared/net.py`).  
+  - Server dispatch: `user_server.py` / `dev_server.py` map `type` → handler; non-auth types enforce `require_token` (`server/util/validator.py`) then add `username/author/role` into payload.  
+  - Store/download: `GAME.LIST/GET_DETAILS` → `game_manager`; `GAME.DOWNLOAD_BEGIN/CHUNK/END` → `storage_manager` (chunks read/written, chunk ordering enforced).  
+  - Upload: `GAME.UPLOAD_*` (dev side) → `storage_manager` to validate chunk order/checksum, then `game_manager` to register new version; manifest and assets stored under `server/cloudGames/...`.  
+  - Lobby/rooms: `LOBBY.*`, `ROOM.READY/GET` → `room_genie`; `ROOM.GET` returns full room snapshot.  
+  - Game start: `GAME.START` (host only) → `room_genie.start_game` (validates ready players/version match) → `game_launcher.launch_room` returns `{host,port,token}` in payload for clients to launch.  
+  - Game report: running game server sends `GAME.REPORT` (status RUNNING/END/ERROR) back to `user_server` → `room_genie` updates state, stops process, and writes play history for review eligibility.  
+  - Reviews: `REVIEW.ADD/EDIT/DELETE/SEARCH_*` → `review_manager`; add/edit enforce play-history eligibility.  
+  - Clients: `user_api.py` / `dev_api.py` wrap `send_request`, preserve session token, and orchestrate local side effects (downloads to disk, launching local game client via manifest).
+

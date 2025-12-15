@@ -101,12 +101,6 @@ def main():
                 print(f"Connected as {role}. Waiting for updates...")
                 # Show rules once on connect.
                 print_rules(target_len=5, max_attempts=6)
-            elif mtype == "rules":
-                # Server-sent rules message
-                txt = msg.get("text") or ""
-                print_rules(target_len=msg.get("target_length", 5), max_attempts=msg.get("max_attempts", 6))
-                if txt:
-                    print(txt)
             elif mtype == "state":
                 if role == "spectator" and "players" in msg:
                     print("\n=== Spectator View ===")
@@ -119,14 +113,7 @@ def main():
                 print_player_state(msg)
                 if not args.spectator and not msg.get("solved") and msg.get("attempts_left", 0) > 0:
                     play = prompt_guess(msg.get("target_length", 5))
-                    try:
-                        send_json(conn, play)
-                    except (BrokenPipeError, ConnectionResetError):
-                        print("Connection closed while sending your move. Exiting.")
-                        return
-                    except Exception as e:
-                        print(f"Failed to send move: {e}")
-                        return
+                    send_json(conn, play)
             elif mtype == "error":
                 print(f"Error: {msg.get('message')}")
             elif mtype == "game_over":

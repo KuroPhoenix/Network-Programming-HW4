@@ -59,4 +59,11 @@ The server stores the manifest with each uploaded version; keep it accurate.
 - [ ] Sends a final `END`/`ERROR` report on any termination path (win, surrender, disconnect, KeyboardInterrupt).
 - [ ] README/inline comments explain any game-specific commands beyond the common ones.
 
+## Practical integration guidelines (lessons learned)
+- Don’t hard-allowlist guesses/input unless you ship the full list in `assets/`; prefer length/shape validation so remote deployments don’t reject valid input (Wordle: accept any alphabetic word of correct length).
+- Ensure surrender/quit paths actually terminate the server loop and exit the process so the lobby can reset room state (BigTwo: return out of the loop on surrender).
+- On game start, broadcast a short “rules” message to all players so they know win conditions and controls without guessing.
+- Always include assets in the uploaded package (e.g., dictionaries, sprites) and reference them via `assets` globs; never rely on host-specific absolute paths.
+- Keep network tolerance high: handle disconnects gracefully, send clear errors, and continue the match when possible.
+
 Use `developer/games/Tetris` or `developer/games/BigTwo` as concrete examples.***

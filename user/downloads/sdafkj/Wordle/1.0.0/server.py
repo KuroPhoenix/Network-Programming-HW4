@@ -160,23 +160,6 @@ class WordleServer:
         self.listener: Optional[socket.socket] = None
         self.lock = threading.Lock()
 
-    def _rules_payload(self) -> dict:
-        return {
-            "type": "rules",
-            "target_length": len(self.target_word),
-            "max_attempts": self.max_attempts,
-            "text": (
-                f"Solve the shared {len(self.target_word)}-letter word. "
-                f"Each guess returns: G = correct letter/place, Y = letter in word wrong place, . = absent. "
-                f"You have {self.max_attempts} attempts; first to solve wins. If time runs out, best board wins."
-            ),
-        }
-
-    def broadcast_rules(self):
-        payload = self._rules_payload()
-        for conn in list(self.connections.values()):
-            send_json(conn, payload)
-
     def start(self):
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -199,9 +182,6 @@ class WordleServer:
                 threading.Thread(target=self.player_thread, args=(pname,), daemon=True).start()
             threading.Thread(target=self.accept_spectators, args=(listener,), daemon=True).start()
             threading.Thread(target=self._heartbeat, daemon=True).start()
-
-            # Share rules once the game begins.
-            self.broadcast_rules()
 
             # Send initial state
             self.broadcast_state()

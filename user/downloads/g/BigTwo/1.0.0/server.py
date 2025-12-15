@@ -244,7 +244,7 @@ class BigTwoServer:
                     elif msg.get("type") == "surrender":
                         winner = [p for p in self.players if p != current_player][0]
                         self.finish_game(winner, reason="surrender")
-                        return
+                        break
                     else:
                         send_json(self.connections[current_player], {"type": "error", "message": "unknown command"})
 
