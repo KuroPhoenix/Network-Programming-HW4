@@ -232,6 +232,10 @@ def main():
                                     room_token = room_info.get("token")
                                     host = room_info.get("host")
                                     if status == "IN_GAME" or (room_port and room_token):
+                                        # Host has already launched a client inside start_game; avoid relaunching.
+                                        if is_host:
+                                            print(f"Game launching for room {room_id}...")
+                                            return True
                                         auto = client.launch_started_game(room_id, username)
                                         if auto.status == "ok":
                                             print(f"Game launching for room {room_id}...")
@@ -403,7 +407,7 @@ def main():
                                     if resp.status == "ok":
                                         ready_players = resp.payload.get("ready_players", ready_players)
                                         print(f"Set ready. Ready players: {ready_players}")
-                                        wait_for_launch(curr_room_id, username, is_host=False, game_name=game_name)
+                                        launched = launched or wait_for_launch(curr_room_id, username, is_host=False, game_name=game_name)
                                     else:
                                         print(f"Error [{resp.code}]: {resp.message}")
                                     time.sleep(0.5)
@@ -413,8 +417,12 @@ def main():
                                     if resp.status != "ok":
                                         print(f"Error [{resp.code}]: {resp.message}")
                                         time.sleep(1.0)
-                                    # wait/poll for launch or readiness
-                                    wait_for_launch(curr_room_id, username, is_host=True, game_name=game_name)
+                                        # wait/poll for launch or readiness
+                                        launched = launched or wait_for_launch(curr_room_id, username, is_host=True, game_name=game_name)
+                                    else:
+                                        # Host client is launched inside start_game; mark as launched to avoid relaunch.
+                                        launched = True
+                                        waiting_msg_shown = False
                                     continue
                                 if room_action == "launch_game":
                                     resp = client.launch_started_game(curr_room_id, username)
