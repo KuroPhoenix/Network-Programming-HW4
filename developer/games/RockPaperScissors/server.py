@@ -40,6 +40,7 @@ class RPSServer:
         token: str,
         p1: str,
         p2: str,
+        p3: str = "",
         report_host: Optional[str] = None,
         report_port: Optional[int] = None,
         report_token: str = "",
@@ -47,7 +48,9 @@ class RPSServer:
         self.port = port
         self.room = room
         self.token = token
-        self.players = [p1, p2]
+        # Seed allowed players; empty seeds will be filled by dynamic joins
+        self.players = [p for p in [p1, p2, p3] if p]
+        self.max_players = 3
         self.connections: Dict[str, socket.socket] = {}
         self.moves: Dict[str, str] = {}
         self.running = True
@@ -78,7 +81,7 @@ class RPSServer:
 
         try:
             listener.settimeout(1.0)
-            while len(self.connections) < 2 and self.running:
+            while len(self.connections) < self.max_players and self.running:
                 try:
                     conn, addr = listener.accept()
                 except socket.timeout:
@@ -89,7 +92,7 @@ class RPSServer:
                 return
 
             threading.Thread(target=self._heartbeat, daemon=True).start()
-            for pname in self.players:
+            for pname in list(self.connections.keys()):
                 threading.Thread(target=self.player_thread, args=(pname,), daemon=True).start()
 
             self.broadcast_rules()
@@ -97,7 +100,7 @@ class RPSServer:
 
             while self.running:
                 with self.lock:
-                    if len(self.moves) == 2:
+                    if len(self.moves) >= 2 and len(self.moves) == len(self.connections):
                         winner, loser, reason = self.decide_winner()
                         self.finish_game(winner, loser, reason)
                         return
@@ -119,11 +122,18 @@ class RPSServer:
             conn.close()
             return
         pname = hello.get("player")
-        if pname not in self.players or pname in self.connections:
-            send_json(conn, {"type": "error", "message": "bad player"})
-            conn.close()
-            return
-        self.connections[pname] = conn
+        with self.lock:
+            if pname in self.connections:
+                send_json(conn, {"type": "error", "message": "duplicate player"})
+                conn.close()
+                return
+            if pname not in self.players and len(self.players) < self.max_players:
+                self.players.append(pname)
+            if pname not in self.players or len(self.connections) >= self.max_players:
+                send_json(conn, {"type": "error", "message": "bad player"})
+                conn.close()
+                return
+            self.connections[pname] = conn
         send_json(conn, {"type": "ok", "role": "player", "room": self.room, "you": pname})
         print(f"[server] player {pname} connected from {addr}")
 
@@ -136,7 +146,7 @@ class RPSServer:
                 msg = recv_json(conn)
                 if not msg:
                     print(f"[server] {pname} disconnected")
-                    self.finish_game(self.other_player(pname), pname, reason="disconnect")
+                    self.finish_game(self.pick_alt_winner(exclude=pname), pname, reason="disconnect")
                     return
                 mtype = msg.get("type")
                 if mtype == "move":
@@ -148,13 +158,13 @@ class RPSServer:
                         self.moves[pname] = move
                     self.broadcast_state()
                 elif mtype == "surrender":
-                    self.finish_game(self.other_player(pname), pname, reason="surrender")
+                    self.finish_game(self.pick_alt_winner(exclude=pname), pname, reason="surrender")
                     return
                 else:
                     send_json(conn, {"type": "error", "message": "unknown command"})
         except Exception as exc:
             print(f"[server] error in player thread {pname}: {exc}")
-            self.finish_game(self.other_player(pname), pname, reason="error")
+            self.finish_game(self.pick_alt_winner(exclude=pname), pname, reason="error")
 
     def broadcast_state(self):
         with self.lock:
@@ -173,15 +183,33 @@ class RPSServer:
             )
 
     def decide_winner(self):
-        p1, p2 = self.players
-        m1, m2 = self.moves.get(p1), self.moves.get(p2)
+        """
+        With up to 3 players:
+          - If all same move → tie (deterministic winner = first player).
+          - If all three moves present → tie (first player wins tie-break).
+          - If two moves present → move that beats the other wins; all players with that move are winners,
+            tie-broken deterministically by name.
+        """
         beats = {("rock", "scissors"), ("scissors", "paper"), ("paper", "rock")}
-        if m1 == m2:
-            # deterministic tie-breaker: player1 wins
-            return p1, p2, "tie_break"
-        if (m1, m2) in beats:
-            return p1, p2, "normal"
-        return p2, p1, "normal"
+        with self.lock:
+            moves_copy = dict(self.moves)
+            players_order = list(self.connections.keys())
+        unique_moves = set(moves_copy.values())
+        if len(unique_moves) == 1 or len(unique_moves) == 3:
+            winner = players_order[0] if players_order else None
+            loser = next((p for p in players_order if p != winner), None)
+            return winner, loser, "tie_break"
+        # Two-move case
+        mlist = list(unique_moves)
+        win_move = None
+        if (mlist[0], mlist[1]) in beats:
+            win_move = mlist[0]
+        elif (mlist[1], mlist[0]) in beats:
+            win_move = mlist[1]
+        winners = sorted([p for p, mv in moves_copy.items() if mv == win_move])
+        winner = winners[0] if winners else None
+        loser = next((p for p in players_order if p not in winners), None)
+        return winner, loser, "normal"
 
     def finish_game(self, winner: Optional[str], loser: Optional[str], reason: str = "normal"):
         if not self.running:
@@ -238,6 +266,13 @@ class RPSServer:
         for p in self.players:
             if p != pname:
                 return p
+        return None
+
+    def pick_alt_winner(self, exclude: str) -> Optional[str]:
+        with self.lock:
+            for p in self.players:
+                if p != exclude and p in self.connections:
+                    return p
         return None
 
 

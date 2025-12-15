@@ -2,13 +2,13 @@
   "game_name": "RockPaperScissors",
   "author": "stan",
   "version": "1.0.0",
-  "description": "Two-player Rock-Paper-Scissors with room-hosted server.",
+  "description": "Three-player Rock-Paper-Scissors with room-hosted server.",
   "type": "CLI",
-  "max_players": 2,
+  "max_players": 3,
   "lobby_requires_download": true,
-  "uploaded": false,
+  "uploaded": true,
   "server": {
-    "command": "python3 server.py --port {port} --room {room_id} --token {token} --p1 {p1} --p2 {p2} --report_host {report_host} --report_port {report_port} --report_token {report_token}",
+    "command": "python3 server.py --port {port} --room {room_id} --token {token} --p1 {p1} --p2 {p2} --p3 {p3} --report_host {report_host} --report_port {report_port} --report_token {report_token}",
     "working_dir": ".",
     "env": {
       "ROOM_ID": "{room_id}",
