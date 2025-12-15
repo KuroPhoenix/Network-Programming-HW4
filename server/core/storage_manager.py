@@ -268,9 +268,7 @@ class StorageManager:
         """
         if not metadata or "game_name" not in metadata:
             raise ValueError("metadata missing game_name")
-        game_folder = metadata.get("game_folder") or ""
-        if not game_folder:
-            raise ValueError("metadata missing game_folder")
+        game_folder = self._resolve_game_folder(metadata)
         download_id = secrets.token_hex(16)
         game_path = Path(game_folder)
         if not game_path.exists():
@@ -335,7 +333,13 @@ class StorageManager:
         """
         Return size and checksum for a stored game package by creating a temp archive snapshot.
         """
-        base_folder = game_folder or str(self.base / game_name / str(version))
+        base_folder = self._resolve_game_folder(
+            {
+                "game_name": game_name,
+                "version": version,
+                "game_folder": game_folder,
+            }
+        )
         meta = {"game_name": game_name, "version": version, "game_folder": base_folder}
         download_id = self.init_download_verification(meta)
         info = self.download_meta_cache.get(download_id, {})
@@ -351,4 +355,30 @@ class StorageManager:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
                 h.update(chunk)
         return h.hexdigest()
+
+    def _resolve_game_folder(self, metadata: dict) -> str:
+        """
+        Pick a safe, existing folder for a game. Prefer the supplied game_folder if it exists;
+        otherwise fall back to the storage root path derived from game_name/version.
+        """
+        raw_folder = metadata.get("game_folder") or ""
+        game_name = metadata.get("game_name") or ""
+        version = metadata.get("version")
+        version_str = str(version) if version not in (None, "") else ""
+
+        # If provided path exists, use it.
+        if raw_folder:
+            p = Path(raw_folder)
+            if p.exists():
+                return str(p)
+
+        # Fallback to our canonical storage location.
+        base_candidate = self.base / game_name
+        if version_str:
+            base_candidate = base_candidate / version_str
+        if base_candidate.exists():
+            return str(base_candidate)
+
+        # If all else fails, keep the original (will raise later).
+        return raw_folder or str(base_candidate)
 
