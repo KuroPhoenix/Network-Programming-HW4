@@ -262,11 +262,9 @@ class WordleServer:
             self.finish_game(winner=self.other_player(pname), loser=pname, reason="error")
 
     def handle_guess(self, pname: str, word: str):
+        # Accept any alphabetic word with the correct length to keep play smooth across dictionaries.
         if not word.isalpha() or len(word) != len(self.target_word):
             send_json(self.connections[pname], {"type": "error", "message": f"word must be {len(self.target_word)} letters"})
-            return
-        if word not in ALLOWED_GUESSES and word not in TARGET_WORDS:
-            send_json(self.connections[pname], {"type": "error", "message": "word not in allowed list"})
             return
         with self.lock:
             state = self.states[pname]
