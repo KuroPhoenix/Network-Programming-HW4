@@ -1,12 +1,10 @@
 import base64
-import json, shlex, os
+import json, shlex, os, threading, time
 import subprocess
-from pathlib import Path
-from sys import version_info
 from typing import Any
+from loguru import logger
 
 from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
-from server.core.room_genie import Room
 from shared.net import connect_to_server, send_request
 from user.utils.download_wizard import DownloadWizard
 from server.core.protocol import (
@@ -28,6 +26,9 @@ from server.core.protocol import (
     USER_LIST, ROOM_READY,
 )
 from user.utils.local_game_manager import LocalGameManager
+from shared.logger import ensure_global_logger, log_dir
+
+_CLIENT_SINK_ADDED = False
 
 
 class UserClient:
@@ -37,6 +38,11 @@ class UserClient:
     """
 
     def __init__(self, host: str | None = None, port: int | None = None):
+        ensure_global_logger()
+        global _CLIENT_SINK_ADDED
+        if not _CLIENT_SINK_ADDED:
+            logger.add(log_dir() / "user_client.log", rotation="1 MB", level="INFO", filter=lambda r: r["file"] == "user_api.py")
+            _CLIENT_SINK_ADDED = True
         self.host = host or USER_SERVER_HOST
         self.port = port or USER_SERVER_HOST_PORT
         self.token: str | None = None
@@ -44,14 +50,18 @@ class UserClient:
         self.username: str | None = None
         self.local_mgr: LocalGameManager | None = None
         self._watch_threads = []
+        self._stop_event = threading.Event()
+        logger.info(f"UserClient connected to {self.host}:{self.port}")
 
     def close(self):
+        self._stop_event.set()
         for t in self._watch_threads:
-            t.join(timeout=0.1)
+            t.join(timeout=0.2)
         try:
             self.file.close()
         finally:
             self.conn.close()
+        logger.info("UserClient connection closed")
 
     def _ensure_local_mgr(self, username: str) -> LocalGameManager:
         if self.local_mgr is None or self.username != username:
@@ -60,6 +70,7 @@ class UserClient:
         return self.local_mgr
 
     def register(self, username: str, password: str) -> Message:
+        logger.info(f"register user={username}")
         resp = send_request(self.conn, self.file, self.token, ACCOUNT_REGISTER_PLAYER, {"username": username, "password": password})
         if resp.status == "ok" and resp.payload.get("session_token"):
             self.token = resp.payload["session_token"]
@@ -68,6 +79,7 @@ class UserClient:
         return resp
 
     def login(self, username: str, password: str) -> Message:
+        logger.info(f"login user={username}")
         resp = send_request(self.conn, self.file, self.token, ACCOUNT_LOGIN_PLAYER, {"username": username, "password": password})
         if resp.status == "ok" and resp.payload.get("session_token"):
             self.token = resp.payload["session_token"]
@@ -92,10 +104,8 @@ class UserClient:
         Start a background poller that fetches rooms and online players periodically.
         Callback signature: callback({"rooms": [...], "players": [...]})
         """
-        import threading, time
-
         def loop():
-            while True:
+            while not self._stop_event.is_set():
                 try:
                     rooms_resp = self.list_rooms()
                     players_resp = self.list_players()
@@ -105,13 +115,15 @@ class UserClient:
                     }
                     if callback:
                         callback(payload)
-                except Exception:
-                    pass
+                    logger.debug(f"watch_rooms callback fired with {len(payload['rooms'])} rooms and {len(payload['players'])} players")
+                except Exception as exc:
+                    logger.exception(f"watch_rooms loop error: {exc}")
                 time.sleep(interval)
 
         t = threading.Thread(target=loop, daemon=True)
         t.start()
         self._watch_threads.append(t)
+        logger.info(f"watch_rooms started with interval={interval}")
 
     def get_game_details(self, game_name: str):
         resp = send_request(self.conn, self.file, self.token, GAME_GET_DETAILS, {"game_name": game_name})
@@ -194,8 +206,10 @@ class UserClient:
         env = os.environ.copy()
         env.update({k: str(v).format(**ctx) for k, v in client_cfg.get("env", {}).items()})
         try:
+            logger.info(f"launching local client for {game_name} v{version} user={username} cmd={cmd} cwd={workdir}")
             subprocess.Popen(cmd, cwd=workdir, env=env)
         except Exception as e:
+            logger.exception(f"Failed to launch local client: {e}")
             raise RuntimeError(f"Failed to launch local client: {e}")
 
     def start_game(self, room_id, game_name: str, username: str = "", ):
@@ -204,7 +218,11 @@ class UserClient:
         """
         payload = {"room_id": room_id}
         #Check game version
-        self.validate_game(username, game_name)
+        try:
+            self.validate_game(username, game_name)
+        except Exception as exc:
+            logger.exception(f"local validation failed before GAME_START for room {room_id}: {exc}")
+            return Message(type="LOCAL.LAUNCH", status="error", code=1, message=str(exc))
         resp = send_request(self.conn, self.file, self.token, GAME_START, payload)
         if resp.status != "ok":
             return resp
@@ -218,7 +236,11 @@ class UserClient:
         if not all([port, token, game_name, version]):
             raise ValueError("GAME_START missing launch details (host/port/token/game/version)")
 
-        self._launch_local_client(username, host, int(port), str(token), str(game_name), str(version))
+        try:
+            self._launch_local_client(username, host, int(port), str(token), str(game_name), str(version))
+            logger.info(f"started local client for room {room_id} on port {port}")
+        except Exception as exc:
+            return Message(type="LOCAL.LAUNCH", status="error", code=3, message=str(exc))
         return resp
 
     def launch_started_game(self, room_id: int, username: str):
@@ -238,9 +260,14 @@ class UserClient:
         if status != "IN_GAME" or not all([port, token, game_name, version]):
             return Message(type="LOCAL.LAUNCH", status="error", code=2, message="Game not started or missing launch info")
         # ensure local version
-        self.validate_game(username, game_name)
-        self._launch_local_client(username, USER_SERVER_HOST, int(port), str(token), str(game_name), str(version))
-        return Message(type="LOCAL.LAUNCH", status="ok", code=0, payload={"room_id": room_id})
+        try:
+            self.validate_game(username, game_name)
+            self._launch_local_client(username, USER_SERVER_HOST, int(port), str(token), str(game_name), str(version))
+            logger.info(f"joined running game room {room_id} user={username} port={port}")
+            return Message(type="LOCAL.LAUNCH", status="ok", code=0, payload={"room_id": room_id})
+        except Exception as exc:
+            logger.exception(f"failed to launch running game for room {room_id}: {exc}")
+            return Message(type="LOCAL.LAUNCH", status="error", code=3, message=str(exc))
 
     def download_game(self, username: str, game_name: str):
         if not game_name:
@@ -266,6 +293,7 @@ class UserClient:
         dwzd.init_download_verification(expected, download_id)
 
         seq = 0
+        logger.info(f"download_game begin user={username} game={game_name} version={expected['version']} download_id={download_id}")
         while True:
             chunk_req = {"download_id": download_id, "seq": seq}
             resp = send_request(self.conn, self.file, self.token, GAME_DOWNLOAD_CHUNK, chunk_req)
@@ -283,6 +311,7 @@ class UserClient:
         end_resp = send_request(self.conn, self.file, self.token, GAME_DOWNLOAD_END, {"download_id": download_id})
         # Tell caller about local install path/manifest.
         payload = {"path": result.get("path"), "manifest": result.get("manifest")}
+        logger.info(f"download_game complete user={username} game={game_name} version={expected['version']}")
         return Message(type="LOCAL.DOWNLOAD", status="ok", code=0, payload=payload, message=end_resp.message)
 
     def list_local_games(self, username: str):
@@ -341,6 +370,7 @@ class UserClient:
             raise ValueError("Game version not found / Game deleted.")
         if latest_ver and latest_ver != user_ver:
             print("[Notice: Your current game is outdated. Update will commence shortly.]")
+            logger.info(f"auto-updating outdated game for user={username} game={game_name} local={user_ver} latest={latest_ver}")
             self.update_game(username, game_name)
 
 

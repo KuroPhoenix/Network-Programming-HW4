@@ -1,5 +1,5 @@
 from dataclasses import asdict
-
+from loguru import logger
 
 from server.core.room_genie import RoomGenie
 from server.core.game_launcher import GameLauncher
@@ -8,17 +8,20 @@ from server.core.auth import Authenticator
 
 def list_rooms(genie: RoomGenie) -> dict:
     rooms = genie.list_rooms()
+    logger.info(f"list_rooms returning {len(rooms)} rooms")
     return {"status": "ok", "code": 0, "payload": {"rooms": rooms}}
 
 def list_players(payload: dict, auth: Authenticator) -> dict:
     role = payload.get("role", "")
     players = auth.list_online_players(role)
+    logger.info(f"list_players role={role} count={len(players)}")
     return {"status": "ok", "code": 0, "payload": {"players": players}}
 
 def get_room(payload: dict, genie: RoomGenie) -> dict:
     room = genie.get_room(payload.get("room_id"))
     data = asdict(room)
     data["ready_players"] = list(room.ready_players)
+    logger.info(f"get_room room_id={payload.get('room_id')} status={room.status}")
     return {"status": "ok", "code": 0, "payload": data}
 
 def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
@@ -39,6 +42,7 @@ def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:
     room = genie.create_room(username, room_name, metadata, gmgr)
     data = asdict(room)
     data["ready_players"] = list(room.ready_players)
+    logger.info(f"create_room user={username} game={game_name} room_id={room.room_id}")
     return {"status": "ok", "code": 0, "payload": {"room": data}}
 
 
@@ -48,6 +52,7 @@ def join_room(payload: dict, genie: RoomGenie) -> dict:
     if not username or room_id <= 0:
         raise ValueError("username and room_id required")
     genie.join_room_as_player(username, room_id)
+    logger.info(f"join_room user={username} room_id={room_id}")
     return {"status": "ok", "code": 0, "payload": {"room_id": room_id}}
 
 def ready_room(payload: dict, genie: RoomGenie) -> dict:
@@ -57,6 +62,7 @@ def ready_room(payload: dict, genie: RoomGenie) -> dict:
     if not username or room_id <= 0:
         raise ValueError("username and room_id required")
     res = genie.set_ready(username, room_id, ready)
+    logger.info(f"ready_room user={username} room_id={room_id} ready={ready}")
     return {"status": "ok", "code": 0, "payload": res}
 
 
@@ -66,4 +72,5 @@ def leave_room(payload: dict, genie: RoomGenie, gmLauncher: GameLauncher | None 
     if not username or room_id <= 0:
         raise ValueError("username and room_id required")
     host = genie.leave_room(username, room_id, gmLauncher)
+    logger.info(f"leave_room user={username} room_id={room_id} new_host={host}")
     return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "host": host}}

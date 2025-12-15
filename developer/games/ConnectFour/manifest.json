@@ -1,0 +1,29 @@
+{
+  "game_name": "ConnectFour",
+  "author": "Platform",
+  "version": "1.0.0",
+  "description": "Two-player Connect Four with a Pygame interface.",
+  "type": "GUI",
+  "max_players": 2,
+  "lobby_requires_download": true,
+  "uploaded": false,
+  "server": {
+    "command": "python3 server.py --port {port} --room {room_id} --token {token} --p1 {p1} --p2 {p2} --report_host {report_host} --report_port {report_port} --report_token {report_token}",
+    "working_dir": ".",
+    "env": {}
+  },
+  "client": {
+    "command": "python3 client.py --host {host} --port {port} --player {player_name} --token {token}",
+    "working_dir": ".",
+    "env": {}
+  },
+  "assets": [
+    "*.py",
+    "README.md",
+    "requirements.txt"
+  ],
+  "healthcheck": {
+    "tcp_port": "{port}",
+    "timeout_sec": 5
+  }
+}

@@ -77,6 +77,15 @@ def main():
     role = "spectator" if args.spectator else "player"
     send_json(conn, {"type": "hello", "player": args.player, "token": args.token, "role": role})
 
+    def print_rules():
+        print("=== Wordle Duel Rules ===")
+        print("- Solve the shared 5-letter target word before your opponent.")
+        print("- Each guess returns result codes: G=correct spot, Y=present elsewhere, .=absent.")
+        print("- You have 6 attempts. Type your guess and press Enter. Type 'surrender' to forfeit.")
+        print("- Disconnects or quitting will surrender the game.")
+
+    print_rules()
+
     try:
         while True:
             msg = recv_json(conn)

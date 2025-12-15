@@ -58,6 +58,9 @@ class user_server:
         except KeyboardInterrupt:
             logger.info("User server shutting down by KeyboardInterrupt")
             self._shutdown_rooms()
+        except Exception as exc:
+            logger.exception(f"User server encountered fatal error: {exc}")
+            self._shutdown_rooms()
         finally:
             try:
                 sock.close()
@@ -66,6 +69,10 @@ class user_server:
 
     def handle_client(self, conn, addr):
         logger.info(f"user client connected: {addr}")
+        try:
+            conn.settimeout(300)
+        except Exception:
+            pass
         handlers = {
             ACCOUNT_REGISTER_PLAYER: lambda p: register_player(p, self.auth),
             ACCOUNT_LOGIN_PLAYER: lambda p: login_player(p, self.auth),
@@ -97,43 +104,50 @@ class user_server:
         current_token: str | None = None
         current_username: str | None = None
         with (conn):
-            for msg in recv_json_lines(conn):
-                mtype = msg.get("type")
-                payload = msg.get("payload", {}) or {}
-                # Allow raw GAME.REPORT frames from game servers (no payload envelope).
-                if mtype == GAME_REPORT and not payload:
-                    payload = {k: v for k, v in msg.items() if k != "type"}
-                handler = handlers.get(mtype)
-                try:
-                    if not handler:
-                        reply = Message(type=mtype or "", status="error", code=100, message="UNKNOWN_TYPE")
-                    else:
-                        if mtype not in no_auth_types:
-                            require_token(self.auth, msg.get("token"), role="player")
-                            username, role = self.auth.validate(msg.get("token"), role="player")
-                            current_username = username
-                            payload["username"] = username
-                            payload["author"] = username
-                            payload["role"] = role
-                            current_token = msg.get("token") or current_token
-                        data = handler(payload)
-                        if mtype in {ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER} and data.get("status") == "ok":
-                            current_token = (data.get("payload") or {}).get("session_token", current_token)
-                        reply = Message(
-                            type=mtype or "",
-                            status=data.get("status"),
-                            code=data.get("code"),
-                            message=data.get("message"),
-                            payload=data.get("payload", {}),
-                        )
-                except ValueError as e:
-                    code = 104 if "REGISTER" in (mtype or "") else 101
-                    logger.warning(f"handler value error type={mtype} payload_keys={list(payload.keys())} err={e}")
-                    reply = Message(type=mtype or "", status="error", code=code, message=str(e))
-                except Exception as e:
-                    logger.exception("handler error")
-                    reply = Message(type=mtype or "", status="error", code=199, message=str(e))
-                send_json(conn, message_to_dict(reply))
+            try:
+                for msg in recv_json_lines(conn):
+                    mtype = msg.get("type")
+                    payload = msg.get("payload", {}) or {}
+                    try:
+                        logger.info(f"recv type={mtype} user={payload.get('username') or payload.get('author')} keys={list(payload.keys())}")
+                    except Exception:
+                        pass
+                    # Allow raw GAME.REPORT frames from game servers (no payload envelope).
+                    if mtype == GAME_REPORT and not payload:
+                        payload = {k: v for k, v in msg.items() if k != "type"}
+                    handler = handlers.get(mtype)
+                    try:
+                        if not handler:
+                            reply = Message(type=mtype or "", status="error", code=100, message="UNKNOWN_TYPE")
+                        else:
+                            if mtype not in no_auth_types:
+                                require_token(self.auth, msg.get("token"), role="player")
+                                username, role = self.auth.validate(msg.get("token"), role="player")
+                                current_username = username
+                                payload["username"] = username
+                                payload["author"] = username
+                                payload["role"] = role
+                                current_token = msg.get("token") or current_token
+                            data = handler(payload)
+                            if mtype in {ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER} and data.get("status") == "ok":
+                                current_token = (data.get("payload") or {}).get("session_token", current_token)
+                            reply = Message(
+                                type=mtype or "",
+                                status=data.get("status"),
+                                code=data.get("code"),
+                                message=data.get("message"),
+                                payload=data.get("payload", {}),
+                            )
+                    except ValueError as e:
+                        code = 104 if "REGISTER" in (mtype or "") else 101
+                        logger.warning(f"handler value error type={mtype} payload_keys={list(payload.keys())} err={e}")
+                        reply = Message(type=mtype or "", status="error", code=code, message=str(e))
+                    except Exception as e:
+                        logger.exception("handler error")
+                        reply = Message(type=mtype or "", status="error", code=199, message=str(e))
+                    send_json(conn, message_to_dict(reply))
+            except Exception as loop_exc:
+                logger.exception(f"unhandled error while processing client {addr}: {loop_exc}")
         if current_token or current_username:
             username = current_username
             if not username and current_token:
@@ -156,9 +170,10 @@ class user_server:
         """
         for rid in list(self.genie.rooms.keys()):
             try:
+                logger.info(f"shutting down room {rid} during server shutdown")
                 self.gmLauncher.stop_room(rid)
-            except Exception:
-                logger.error(f"Failed to stop room {rid} during shutdown")
+            except Exception as exc:
+                logger.error(f"Failed to stop room {rid} during shutdown: {exc}")
         self.genie.rooms.clear()
 
 

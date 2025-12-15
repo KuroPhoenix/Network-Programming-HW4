@@ -444,6 +444,9 @@ def main():
                             print(f"Error [{resp.code}]: {resp.message}")
                 except Exception as e:
                     print(f"Operation failed: {e}")
+                    if "Server closed connection" in str(e):
+                        auth_status = False
+                        print("Connection lost. Returning to main menu.")
     except KeyboardInterrupt:
         if auth_status:
             try:

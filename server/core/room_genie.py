@@ -48,6 +48,7 @@ class RoomGenie:
                 data = asdict(room)
                 data["ready_players"] = list(room.ready_players)
                 rooms.append(data)
+            logger.debug(f"list_rooms returning {len(rooms)} rooms")
             return rooms
 
     def remove_user_from_rooms(self, username: str, gmLauncher: GameLauncher | None = None) -> list[int]:
@@ -63,17 +64,21 @@ class RoomGenie:
                 affected.append(room_id)
                 room.players = [p for p in room.players if p != username]
                 was_host = room.host == username
+                logger.info(f"removing {username} from room {room_id} (host={room.host}, remaining={room.players})")
                 if was_host:
                     if room.players:
+                        logger.info(f"transferring host of room {room_id} to {room.players[0]}")
                         room.host = room.players[0]
                     else:
                         if gmLauncher and room.status == "IN_GAME":
                             self._clear_running(room, gmLauncher)
+                        logger.info(f"deleting empty room {room_id} after host left")
                         del self.rooms[room_id]
                         continue
                 if not room.players:
                     if gmLauncher and room.status == "IN_GAME":
                         self._clear_running(room, gmLauncher)
+                    logger.info(f"deleting empty room {room_id}")
                     del self.rooms[room_id]
         return affected
 
@@ -101,6 +106,7 @@ class RoomGenie:
                 max_players = None
             room = Room(room_id, host, room_name, players=[host], metadata=room_meta, max_players=max_players)
             self.rooms[room_id] = room
+            logger.info(f"created room {room_id} '{room_name}' for game {room_meta['game_name']} v{room_meta['version']} host={host}")
             return room
 
     def get_room(self, room_id: int) -> Room:
@@ -110,6 +116,7 @@ class RoomGenie:
         return room
 
     def _watch_room(self, room_id, launcher, interval=0.5):
+        logger.debug(f"starting watcher for room {room_id}")
         try:
             while True:
                 try:
@@ -119,6 +126,7 @@ class RoomGenie:
                     logger.exception(f"room watcher describe failed for room {room_id}: {e}")
                     break
                 if not proc:
+                    logger.debug(f"room watcher exiting for {room_id}: no running process found")
                     break
                 try:
                     if proc.poll() is not None:  # exited
@@ -130,6 +138,7 @@ class RoomGenie:
                                 room.port = None
                                 room.token = None
                                 room.server_pid = None
+                        logger.info(f"room {room_id} server exited with code {code}")
                         launcher.stop_room(room_id)
                         break
                 except Exception as e:
@@ -144,6 +153,7 @@ class RoomGenie:
                     room.port = None
                     room.token = None
                     room.server_pid = None
+            logger.debug(f"watcher cleanup stopping room {room_id}")
             launcher.stop_room(room_id)
 
     def start_game(self, room_id: int, gmLauncher: GameLauncher, gmgr: GameManager) -> dict:
@@ -164,7 +174,17 @@ class RoomGenie:
             if needed_ready and not set(needed_ready).issubset(room.ready_players):
                 raise ValueError("Not all players are ready.")
             room.status = "IN_GAME"
-            running_result = gmLauncher.launch_room(room_id, room.host, room.metadata, room.players)
+            logger.info(f"starting game for room {room_id} host={room.host} players={room.players}")
+            try:
+                running_result = gmLauncher.launch_room(room_id, room.host, room.metadata, room.players)
+            except Exception:
+                # rollback the state so lobby remains usable after a failed launch
+                room.status = "WAITING"
+                room.port = None
+                room.token = None
+                room.server_pid = None
+                logger.exception(f"failed to launch room {room_id}; reverted to WAITING state")
+                raise
             room.port = running_result.port
             room.server_proc = running_result.proc
             room.server_pid = room.server_proc.pid
@@ -183,6 +203,7 @@ class RoomGenie:
             return {"room": room_data, "launch": launch_info}
 
     def _clear_running(self, room: Room, gmLauncher: GameLauncher):
+        logger.debug(f"clearing running state for room {room.room_id}")
         gmLauncher.stop_room(room.room_id)
         room.port = None
         room.token = None
@@ -201,6 +222,7 @@ class RoomGenie:
             if reviewMgr:
                 reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), winner)
                 reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), loser)
+        logger.info(f"room {room_id} ended normally winner={winner} loser={loser}")
 
     def game_ended_with_error(self, err_msg: str, room_id: int, gmLauncher: GameLauncher):
         with self.lock:
@@ -208,17 +230,19 @@ class RoomGenie:
             room.status = "WAITING"
             room.ready_players.clear()
             self._clear_running(room, gmLauncher)
-        logger.error(err_msg)
+        logger.error(f"room {room_id} ended with error: {err_msg}")
 
     def join_room_as_player(self, username: str, target_room_id: int):
         with self.lock:
             room = self.get_room(target_room_id)
             if username in room.players:
+                logger.info(f"user {username} already in room {target_room_id}")
                 return
             if room.max_players is not None and len(room.players) >= room.max_players:
                 raise ValueError(f"Room ID: {room.room_id} {room.room_name} is full.")
             room.players.append(username)
             room.ready_players.discard(username)
+            logger.info(f"user {username} joined room {target_room_id}; players now={room.players}")
 
     def _delete_room(self, room_id: int, gmLauncher: GameLauncher | None = None):
         with self.lock:
@@ -227,6 +251,7 @@ class RoomGenie:
                 raise ValueError(f"Room ID: {room_id} does not exist.")
             if gmLauncher and room.status == "IN_GAME":
                 self._clear_running(room, gmLauncher)
+            logger.info(f"deleting room {room_id}")
             del self.rooms[room_id]
             return True
 
@@ -247,10 +272,12 @@ class RoomGenie:
             if was_host:
                 if room.players:
                     room.host = room.players[0]
+                    logger.info(f"{username} left room {target_room_id}; host transferred to {room.host}")
                 else:
                     self._delete_room(target_room_id, gmLauncher)
+                    logger.info(f"{username} left room {target_room_id}; room deleted because it became empty")
                     return ""
-
+            logger.info(f"{username} left room {target_room_id}; remaining players={room.players}")
             return room.host
 
     def set_ready(self, username: str, room_id: int, ready: bool = True) -> dict:
@@ -262,4 +289,5 @@ class RoomGenie:
                 room.ready_players.add(username)
             else:
                 room.ready_players.discard(username)
+            logger.info(f"player {username} ready={ready} in room {room_id}; ready now={room.ready_players}")
             return {"room_id": room_id, "ready_players": list(room.ready_players)}

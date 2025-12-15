@@ -5,11 +5,16 @@ import socket
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-def send_json(conn: socket.socket, obj: Dict):
-    conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+def send_json(conn: socket.socket, obj: Dict) -> bool:
+    try:
+        conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+        return True
+    except Exception:
+        return False
 
 
 def recv_json(conn: socket.socket) -> Optional[Dict]:
@@ -30,73 +35,59 @@ def recv_json(conn: socket.socket) -> Optional[Dict]:
         return None
 
 
-TARGET_WORDS = [
-    "apple",
-    "cabin",
-    "crane",
-    "crown",
-    "daily",
-    "eager",
-    "flame",
-    "gamer",
-    "glove",
-    "honey",
-    "input",
-    "jelly",
-    "knock",
-    "lemon",
-    "movie",
-    "noble",
-    "ocean",
-    "piano",
-    "quilt",
-    "rider",
-    "stone",
-    "tiger",
-    "vivid",
-    "waltz",
-    "xenon",
-    "young",
-    "zebra",
-    "cider",
-    "pride",
-    "stare",
-    "stark",
-    "blaze",
-    "trick",
-    "spice",
-    "grace",
-    "brink",
-    "sound",
-    "trace",
-    "swift",
-]
+def _load_dictionary() -> tuple[list[str], set[str]]:
+    """
+    Load the full English word list from words_dictionary.json.
+    Falls back to a small built-in list if the file is missing or unreadable.
+    """
+    fallback = [
+        "apple",
+        "cabin",
+        "crane",
+        "crown",
+        "daily",
+        "eager",
+        "flame",
+        "gamer",
+        "glove",
+        "honey",
+        "input",
+        "jelly",
+        "knock",
+        "lemon",
+        "movie",
+        "noble",
+        "ocean",
+        "piano",
+        "quilt",
+        "rider",
+        "stone",
+        "tiger",
+        "vivid",
+        "waltz",
+        "xenon",
+        "young",
+        "zebra",
+    ]
+    path = Path(__file__).resolve().parent / "words_dictionary.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            words = [w.lower() for w in data.keys() if len(w) == 5 and w.isalpha()]
+        elif isinstance(data, list):
+            words = [str(w).lower() for w in data if len(str(w)) == 5 and str(w).isalpha()]
+        else:
+            words = fallback
+    except Exception as exc:
+        print(f"[server] failed to load dictionary {path}: {exc}; using fallback list")
+        words = fallback
+    if not words:
+        words = fallback
+    allowed = set(words)
+    return words, allowed
 
-# Accept any target word as a valid guess. For non-target guesses, this set keeps the game honest.
-ALLOWED_GUESSES = set(TARGET_WORDS + [
-    "adore",
-    "arise",
-    "beads",
-    "brave",
-    "cable",
-    "chair",
-    "delta",
-    "frost",
-    "gloom",
-    "ideal",
-    "joint",
-    "latch",
-    "mirth",
-    "novel",
-    "pouch",
-    "quirk",
-    "rough",
-    "scrap",
-    "their",
-    "ultra",
-    "vapor",
-    "weary",
-])
+
+TARGET_WORDS, ALLOWED_GUESSES = _load_dictionary()
 
 
 class PlayerState:
@@ -142,11 +133,11 @@ class WordleServer:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind(("0.0.0.0", self.port))
         listener.listen(2)
+        listener.settimeout(1.0)
         self.listener = listener
         print(f"[server] Wordle listening on 0.0.0.0:{self.port} room={self.room}")
 
         try:
-            listener.settimeout(1.0)
             while len(self.connections) < 2:
                 try:
                     conn, addr = listener.accept()
@@ -178,6 +169,10 @@ class WordleServer:
                 pass
 
     def handle_handshake(self, conn: socket.socket, addr, allow_players: bool):
+        try:
+            conn.settimeout(120)
+        except Exception:
+            pass
         hello = recv_json(conn)
         if not hello or hello.get("token") != self.token:
             conn.close()
@@ -203,6 +198,10 @@ class WordleServer:
             conn.close()
             return
         self.connections[pname] = conn
+        try:
+            conn.settimeout(None)
+        except Exception:
+            pass
         send_json(conn, {"type": "ok", "role": "player", "room": self.room, "you": pname})
         print(f"[server] player {pname} connected from {addr}")
 
@@ -219,8 +218,17 @@ class WordleServer:
     def player_thread(self, pname: str):
         conn = self.connections[pname]
         try:
+            conn.settimeout(120)
+        except Exception:
+            pass
+        try:
             while self.running:
-                msg = recv_json(conn)
+                try:
+                    msg = recv_json(conn)
+                except socket.timeout:
+                    print(f"[server] {pname} timed out")
+                    self.finish_game(winner=self.other_player(pname), loser=pname, reason="timeout")
+                    return
                 if not msg:
                     print(f"[server] {pname} disconnected")
                     self.finish_game(winner=self.other_player(pname), loser=pname, reason="disconnect")
@@ -317,7 +325,7 @@ class WordleServer:
     def broadcast_state(self):
         for pname, conn in list(self.connections.items()):
             opp = self.other_player(pname)
-            send_json(
+            ok = send_json(
                 conn,
                 {
                     "type": "state",
@@ -336,6 +344,8 @@ class WordleServer:
                     },
                 },
             )
+            if not ok:
+                self.finish_game(winner=self.other_player(pname), loser=pname, reason="disconnect")
         if self.spectators:
             payload = {
                 "type": "state",
@@ -351,8 +361,13 @@ class WordleServer:
                     for p, st in self.states.items()
                 },
             }
-            for conn in list(self.spectators.values()):
-                send_json(conn, payload)
+            for sid, conn in list(self.spectators.items()):
+                if not send_json(conn, payload):
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    self.spectators.pop(sid, None)
 
     def send_spectator_state(self, conn: socket.socket):
         send_json(
@@ -381,8 +396,20 @@ class WordleServer:
             self.winner = winner
         for conn in list(self.connections.values()):
             send_json(conn, {"type": "game_over", "winner": winner, "loser": loser, "reason": reason})
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
         for conn in list(self.spectators.values()):
             send_json(conn, {"type": "game_over", "winner": winner, "loser": loser, "reason": reason})
+            try:
+                conn.close()
+            except Exception:
+                pass
         print(f"[server] game over winner={winner} loser={loser} reason={reason}")
         self._report_status("END", winner=winner, loser=loser, reason=reason)
         try:

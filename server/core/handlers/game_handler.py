@@ -18,30 +18,36 @@ def report_game(payload: dict, genie: RoomGenie, gmLauncher: GameLauncher, revie
     """
     status = (payload.get("status") or "").upper()
     room_id = payload.get("room_id") or payload.get("room")
+    logger.info(f"report_game room_id={room_id} status={status} keys={list(payload.keys())}")
     if room_id is None:
         raise ValueError("room_id required")
     # Verify report_token against room
     try:
         room = genie.get_room(int(room_id))
     except Exception as e:
+        logger.warning(f"report_game could not find room {room_id}: {e}")
         return {"status": "error", "code": 103, "message": str(e)}
     report_token = payload.get("report_token")
     if report_token and room.token and report_token != room.token:
         logger.warning(f"invalid report token for room {room_id}")
         return {"status": "error", "code": 101, "message": "invalid report token"}
 
-    if status == "RUNNING":
-        return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
-    if status == "END":
-        genie.game_ended_normally(payload.get("winner", ""), payload.get("loser", ""), int(room_id), gmLauncher, reviewMgr)
-        logger.info(f"room {room_id} reported END")
-        return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
-    if status == "ERROR":
-        err_msg = payload.get("err_msg") or payload.get("reason") or "unknown error"
-        genie.game_ended_with_error(err_msg, int(room_id), gmLauncher)
-        logger.error(f"room {room_id} reported ERROR: {err_msg}")
-        return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status, "err_msg": err_msg}}
-    return {"status": "error", "code": 100, "message": "UNKNOWN_STATUS"}
+    try:
+        if status == "RUNNING":
+            return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
+        if status == "END":
+            genie.game_ended_normally(payload.get("winner", ""), payload.get("loser", ""), int(room_id), gmLauncher, reviewMgr)
+            logger.info(f"room {room_id} reported END")
+            return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
+        if status == "ERROR":
+            err_msg = payload.get("err_msg") or payload.get("reason") or "unknown error"
+            genie.game_ended_with_error(err_msg, int(room_id), gmLauncher)
+            logger.error(f"room {room_id} reported ERROR: {err_msg}")
+            return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status, "err_msg": err_msg}}
+        return {"status": "error", "code": 100, "message": "UNKNOWN_STATUS"}
+    except Exception as exc:
+        logger.exception(f"report_game handling failed for room {room_id}: {exc}")
+        return {"status": "error", "code": 199, "message": str(exc)}
 
 def start_game(payload: dict, gmLauncher: GameLauncher, genie: RoomGenie, gmgr: GameManager) -> dict:
     """
@@ -61,7 +67,15 @@ def start_game(payload: dict, gmLauncher: GameLauncher, genie: RoomGenie, gmgr: 
     required_players = 2 if (room.max_players is None or room.max_players >= 2) else 1
     if len(room.players) < required_players:
         raise ValueError(f"Not enough players to start. Need at least {required_players}.")
-    start_session_info = genie.start_game(payload["room_id"], gmLauncher, gmgr)
+    logger.info(f"start_game request user={username} room_id={room.room_id} players={room.players}")
+    try:
+        start_session_info = genie.start_game(payload["room_id"], gmLauncher, gmgr)
+    except ValueError as e:
+        logger.warning(f"start_game validation failed room {room.room_id}: {e}")
+        return {"status": "error", "code": 101, "message": str(e)}
+    except Exception as exc:
+        logger.exception(f"start_game failed for room {room.room_id}: {exc}")
+        return {"status": "error", "code": 199, "message": str(exc)}
     return {"status": "ok", "code": 0, "payload": start_session_info}
 
 def list_game(payload: dict, mgr: GameManager):

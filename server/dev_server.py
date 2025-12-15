@@ -62,6 +62,10 @@ class DevServer:
 
     def handle_client(self, conn, addr):
         logger.info(f"dev client connected: {addr}")
+        try:
+            conn.settimeout(300)
+        except Exception:
+            pass
         handlers = {
             ACCOUNT_REGISTER_DEVELOPER: lambda p: register_developer(p, self.auth),
             ACCOUNT_LOGIN_DEVELOPER: lambda p: login_developer(p, self.auth),

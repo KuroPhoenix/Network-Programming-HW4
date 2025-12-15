@@ -72,7 +72,7 @@ class Authenticator:
     def login(self, username, password, role):
         """
         Authenticate a user and role. Returns a session token on success; raises ValueError on bad
-        credentials or duplicate login.
+        credentials. Any existing session for the same user/role is invalidated to avoid stale tokens blocking re-login.
         """
         with self._conn_db() as conn:
             cur = conn.execute(
@@ -85,9 +85,12 @@ class Authenticator:
                 raise ValueError("bad credentials")
 
         key = (username, role)
+        # Evict any stale session so users can re-login after timeouts/disconnects.
         if key in self.sessions:
-            logger.info(f"Login failed: duplicate session for '{username}' role '{role}'")
-            raise ValueError("duplicate login")
+            stale_token = self.sessions.pop(key, None)
+            if stale_token:
+                self.token_index.pop(stale_token, None)
+                logger.info(f"Invalidated stale session for '{username}' role '{role}' during login")
 
         token = secrets.token_hex(16)
         self.sessions[key] = token

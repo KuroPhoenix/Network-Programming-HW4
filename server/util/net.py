@@ -19,14 +19,30 @@ def create_listener(host: str, port: int, *, backlog: int = 5, reuse_addr: bool 
     return s
 
 
-def recv_json_lines(conn):
+def recv_json_lines(conn, *, timeout: float | None = 300.0):
     """
-    reads JSON lines from a socket connection
+    reads JSON lines from a socket connection with an optional inactivity timeout.
     :param conn:
+    :param timeout: seconds of inactivity before breaking the iterator
     :return:
     """
+    if timeout is not None:
+        try:
+            conn.settimeout(timeout)
+        except Exception:
+            pass
     with conn.makefile("r") as f:
-        for line in f:
+        while True:
+            try:
+                line = f.readline()
+            except socket.timeout:
+                logger.warning("connection timed out waiting for data; closing")
+                break
+            except Exception as e:
+                logger.warning(f"failed to read JSON line; closing connection: {e}")
+                break
+            if not line:
+                break
             try:
                 yield json.loads(line)
             except Exception as e:

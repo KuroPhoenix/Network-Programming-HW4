@@ -27,7 +27,9 @@
     }
   },
   "assets": [
-    "assets/*"
+    "*.py",
+    "README.md",
+    "words_dictionary.json"
   ],
   "healthcheck": {
     "tcp_port": "{port}",
