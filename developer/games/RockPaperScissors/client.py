@@ -3,25 +3,59 @@ import json
 import socket
 import sys
 import os
+import logging
+from pathlib import Path
 from typing import Optional, Dict
 
+def _configure_logging(log_name: str) -> None:
+    root = None
+    here = Path(__file__).resolve()
+    for parent in [here] + list(here.parents):
+        if (parent / "requirements.txt").is_file():
+            root = parent
+            break
+    if root is None:
+        root = here.parent
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.FileHandler(log_dir / log_name, encoding="utf-8"), logging.StreamHandler()],
+        force=True,
+    )
 
-def send_json(conn: socket.socket, obj: dict):
-    conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+
+_configure_logging("game_rps_client.log")
+logger = logging.getLogger(__name__)
+
+
+def send_json(conn: socket.socket, obj: dict) -> bool:
+    try:
+        conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+        return True
+    except Exception as exc:
+        logger.warning("send_json failed: %s", exc)
+        return False
 
 
 def recv_json(conn: socket.socket) -> Optional[dict]:
     buf = b""
-    while True:
-        chunk = conn.recv(1)
-        if not chunk:
-            return None
-        if chunk == b"\n":
-            break
-        buf += chunk
+    try:
+        while True:
+            chunk = conn.recv(1)
+            if not chunk:
+                return None
+            if chunk == b"\n":
+                break
+            buf += chunk
+    except Exception as exc:
+        logger.warning("recv_json failed: %s", exc)
+        return None
     try:
         return json.loads(buf.decode("utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning("recv_json parse failed: %s", exc)
         return None
 
 
@@ -82,7 +116,11 @@ def main():
         sys.exit(2)
 
     conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    conn.connect((args.host, args.port))
+    try:
+        conn.connect((args.host, args.port))
+    except Exception as exc:
+        logger.error("failed to connect to %s:%s: %s", args.host, args.port, exc)
+        return
     hello = {
         "room_id": room_id,
         "match_id": match_id,
@@ -90,7 +128,9 @@ def main():
         "client_token": client_token,
         "client_protocol_version": args.client_protocol_version,
     }
-    send_json(conn, hello)
+    if not send_json(conn, hello):
+        print("Failed to send handshake.")
+        return
     resp = recv_json(conn)
     if not resp or not resp.get("ok"):
         print(f"Handshake rejected: {resp.get('reason') if resp else 'no response'}")

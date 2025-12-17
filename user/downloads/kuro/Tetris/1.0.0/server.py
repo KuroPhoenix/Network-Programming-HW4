@@ -5,9 +5,33 @@ import socket
 import threading
 import time
 import os
+import logging
+from pathlib import Path
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+
+def _configure_logging(log_name: str) -> None:
+    root = None
+    here = Path(__file__).resolve()
+    for parent in [here] + list(here.parents):
+        if (parent / "requirements.txt").is_file():
+            root = parent
+            break
+    if root is None:
+        root = here.parent
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.FileHandler(log_dir / log_name, encoding="utf-8"), logging.StreamHandler()],
+        force=True,
+    )
+
+
+_configure_logging("game_tetris_server.log")
+logger = logging.getLogger(__name__)
 
 WIDTH = 10
 HEIGHT = 20
@@ -49,11 +73,16 @@ SHAPES = {
 }
 
 
-def send_json(conn: socket.socket, obj: Dict):
-    conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+def send_json(conn: socket.socket, obj: Dict) -> bool:
+    try:
+        conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+        return True
+    except Exception as exc:
+        logger.warning("send_json failed: %s", exc)
+        return False
 
 
-def recv_json(conn: socket.socket):
+def recv_json(conn: socket.socket) -> Optional[Dict]:
     buf = b""
     try:
         while True:
@@ -63,7 +92,13 @@ def recv_json(conn: socket.socket):
             if chunk == b"\n":
                 break
             buf += chunk
-    except Exception:
+    except Exception as exc:
+        logger.warning("recv_json failed: %s", exc)
+        return None
+    try:
+        return json.loads(buf.decode("utf-8"))
+    except Exception as exc:
+        logger.warning("recv_json parse failed: %s", exc)
         return None
 
 
@@ -78,10 +113,6 @@ def _read_secret(env_name: str, path_env_name: str) -> str:
         except Exception:
             return ""
     return ""
-    try:
-        return json.loads(buf.decode("utf-8"))
-    except Exception:
-        return None
 
 
 @dataclass
@@ -503,7 +534,7 @@ class TetrisServer:
             with socket.create_connection((self.report_host, self.report_port), timeout=3) as conn:
                 send_json(conn, payload)
         except Exception as exc:
-            print(f"[server] failed to report result: {exc}")
+            logger.warning("failed to report result: %s", exc)
 
     def _heartbeat(self):
         while self.running:
@@ -542,7 +573,7 @@ def main():
     report_token = resolve_secret(args.report_token, args.report_token_path, "REPORT_TOKEN", "REPORT_TOKEN_PATH")
     match_id = args.match_id or os.getenv("MATCH_ID", "")
     if not client_token or not report_token or not match_id:
-        print("[server] missing required client_token/report_token/match_id; aborting")
+        logger.error("missing required client_token/report_token/match_id; aborting")
         sys.exit(2)
 
     srv = TetrisServer(
@@ -563,7 +594,7 @@ def main():
     except KeyboardInterrupt:
         srv.running = False
         srv._report_status("ERROR", err_msg="interrupted")
-        print("\n[server] interrupted")
+        logger.warning("interrupted")
 
 
 if __name__ == "__main__":

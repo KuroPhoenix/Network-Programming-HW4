@@ -47,6 +47,33 @@
   - `server/cloudGames/Wordle/1.0.0/README.md`
   - `server/cloudGames/BigTwo/1.0.0/README.md`
   - `user/downloads/*/*/README.md`
+- Fixed JSON parsing in game servers after token integration:
+  - `developer/games/ConnectFour/server.py`
+  - `developer/games/RockPaperScissors/server.py`
+- Added logging/try-except guards for game client/server network IO:
+  - `server/cloudGames/Wordle/1.0.0/server.py`
+  - `server/cloudGames/Wordle/1.0.0/client.py`
+  - `server/cloudGames/BigTwo/1.0.0/server.py`
+  - `server/cloudGames/BigTwo/1.0.0/client.py`
+  - `developer/games/ConnectFour/server.py`
+  - `developer/games/ConnectFour/client.py`
+  - `developer/games/RockPaperScissors/server.py`
+  - `developer/games/RockPaperScissors/client.py`
+  - `developer/games/Tetris/server.py`
+  - `developer/games/Tetris/client.py`
+- Routed game logging into `logs/` and expanded integration guidance:
+  - `developer/games/README.md`
+  - `server/cloudGames/Wordle/1.0.0/server.py`
+  - `server/cloudGames/Wordle/1.0.0/client.py`
+  - `server/cloudGames/BigTwo/1.0.0/server.py`
+  - `server/cloudGames/BigTwo/1.0.0/client.py`
+  - `developer/games/ConnectFour/server.py`
+  - `developer/games/ConnectFour/client.py`
+  - `developer/games/RockPaperScissors/server.py`
+  - `developer/games/RockPaperScissors/client.py`
+  - `developer/games/Tetris/server.py`
+  - `developer/games/Tetris/client.py`
 
 ## Phase 3 - Conformance tooling
 - Added `tools/validate_game_package.py` for manifest validation with optional smoke test.
+- Rewrote `developer/games/README.md` with full protocol v1 integration guidance.

@@ -5,10 +5,34 @@ import sys
 import threading
 import time
 import os
+import logging
+from pathlib import Path
 from queue import Queue, Empty
 from typing import Optional, Dict
 
 import pygame
+
+def _configure_logging(log_name: str) -> None:
+    root = None
+    here = Path(__file__).resolve()
+    for parent in [here] + list(here.parents):
+        if (parent / "requirements.txt").is_file():
+            root = parent
+            break
+    if root is None:
+        root = here.parent
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.FileHandler(log_dir / log_name, encoding="utf-8"), logging.StreamHandler()],
+        force=True,
+    )
+
+
+_configure_logging("game_connectfour_client.log")
+logger = logging.getLogger(__name__)
 
 
 SQUARESIZE = 100
@@ -25,7 +49,8 @@ def send_json(conn: socket.socket, obj: dict) -> bool:
     try:
         conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
         return True
-    except Exception:
+    except Exception as exc:
+        logger.warning("send_json failed: %s", exc)
         return False
 
 
@@ -39,7 +64,13 @@ def recv_json(conn: socket.socket) -> Optional[dict]:
             if chunk == b"\n":
                 break
             buf += chunk
-    except Exception:
+    except Exception as exc:
+        logger.warning("recv_json failed: %s", exc)
+        return None
+    try:
+        return json.loads(buf.decode("utf-8"))
+    except Exception as exc:
+        logger.warning("recv_json parse failed: %s", exc)
         return None
 
 
@@ -54,10 +85,6 @@ def _read_secret(env_name: str, path_env_name: str) -> str:
         except Exception:
             return ""
     return ""
-    try:
-        return json.loads(buf.decode("utf-8"))
-    except Exception:
-        return None
 
 
 def draw_board(screen, board_state: Dict, status_text: str, winner_text: str, your_name: str, turn_player: str):
@@ -131,7 +158,8 @@ def main():
             conn.connect((args.host, args.port))
             connected = True
             break
-        except Exception:
+        except Exception as exc:
+            logger.warning("connect attempt %s failed: %s", attempt + 1, exc)
             time.sleep(0.5)
     if not connected:
         print("Unable to connect to server.")
@@ -145,7 +173,9 @@ def main():
         "client_protocol_version": args.client_protocol_version,
         "role": "player",
     }
-    send_json(conn, hello)
+    if not send_json(conn, hello):
+        print("Failed to send handshake.")
+        return
     resp = recv_json(conn)
     if not resp or not resp.get("ok"):
         print(f"Handshake rejected: {resp.get('reason') if resp else 'no response'}")

@@ -6,8 +6,32 @@ import sys
 import threading
 import time
 import os
+import logging
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
+
+def _configure_logging(log_name: str) -> None:
+    root = None
+    here = Path(__file__).resolve()
+    for parent in [here] + list(here.parents):
+        if (parent / "requirements.txt").is_file():
+            root = parent
+            break
+    if root is None:
+        root = here.parent
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.FileHandler(log_dir / log_name, encoding="utf-8"), logging.StreamHandler()],
+        force=True,
+    )
+
+
+_configure_logging("game_bigtwo_server.log")
+logger = logging.getLogger(__name__)
 
 
 # ---------------- Cards and combos ---------------- #
@@ -124,21 +148,31 @@ def beats(candidate: Combo, current: Combo) -> bool:
 # ---------------- Networking helpers ---------------- #
 def send_json(conn: socket.socket, obj: Dict):
     data = json.dumps(obj).encode("utf-8") + b"\n"
-    conn.sendall(data)
+    try:
+        conn.sendall(data)
+        return True
+    except Exception as exc:
+        logger.warning("send_json failed: %s", exc)
+        return False
 
 
 def recv_json(conn: socket.socket) -> Optional[Dict]:
     buf = b""
-    while True:
-        chunk = conn.recv(1)
-        if not chunk:
-            return None
-        if chunk == b"\n":
-            break
-        buf += chunk
+    try:
+        while True:
+            chunk = conn.recv(1)
+            if not chunk:
+                return None
+            if chunk == b"\n":
+                break
+            buf += chunk
+    except Exception as exc:
+        logger.warning("recv_json failed: %s", exc)
+        return None
     try:
         return json.loads(buf.decode("utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning("recv_json parse failed: %s", exc)
         return None
 
 
@@ -450,7 +484,7 @@ class BigTwoServer:
             with socket.create_connection((self.report_host, self.report_port), timeout=3) as conn:
                 send_json(conn, payload)
         except Exception as exc:
-            print(f"[server] failed to report result: {exc}")
+            logger.warning("failed to report result: %s", exc)
 
     def _heartbeat(self):
         while self.running:
@@ -488,7 +522,7 @@ def main():
     report_token = resolve_secret(args.report_token, args.report_token_path, "REPORT_TOKEN", "REPORT_TOKEN_PATH")
     match_id = args.match_id or os.getenv("MATCH_ID", "")
     if not client_token or not report_token or not match_id:
-        print("[server] missing required client_token/report_token/match_id; aborting")
+        logger.error("missing required client_token/report_token/match_id; aborting")
         sys.exit(2)
 
     srv = BigTwoServer(
@@ -508,7 +542,7 @@ def main():
     except KeyboardInterrupt:
         srv.running = False
         srv._report_status("ERROR", err_msg="interrupted")
-        print("\n[server] interrupted")
+        logger.warning("interrupted")
         sys.exit(0)
 
 
