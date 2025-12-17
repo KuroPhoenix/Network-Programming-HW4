@@ -1,4 +1,5 @@
 import argparse
+import io
 import json
 import random
 import socket
@@ -8,7 +9,7 @@ import time
 import os
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, IO
 
 def _configure_logging(log_name: str) -> None:
     root = None
@@ -32,6 +33,8 @@ def _configure_logging(log_name: str) -> None:
 _configure_logging("game_wordle_server.log")
 logger = logging.getLogger(__name__)
 
+MAX_LINE_BYTES = 64 * 1024
+
 
 def send_json(conn: socket.socket, obj: Dict):
     try:
@@ -42,21 +45,19 @@ def send_json(conn: socket.socket, obj: Dict):
         return False
 
 
-def recv_json(conn: socket.socket) -> Optional[Dict]:
-    buf = b""
+def recv_json(reader: IO[str]) -> Optional[Dict]:
     try:
-        while True:
-            chunk = conn.recv(1)
-            if not chunk:
-                return None
-            if chunk == b"\n":
-                break
-            buf += chunk
+        line = reader.readline(MAX_LINE_BYTES)
     except Exception as exc:
         logger.warning("recv_json failed: %s", exc)
         return None
+    if not line:
+        return None
+    if len(line) >= MAX_LINE_BYTES:
+        logger.warning("received line exceeds max (%d bytes); discarding", MAX_LINE_BYTES)
+        return None
     try:
-        return json.loads(buf.decode("utf-8"))
+        return json.loads(line)
     except Exception as exc:
         logger.warning("recv_json parse failed: %s", exc)
         return None
@@ -271,50 +272,61 @@ class WordleServer:
                 pass
 
     def handle_handshake(self, conn: socket.socket, addr, allow_players: bool):
-        hello = recv_json(conn)
+        reader = conn.makefile("r", encoding="utf-8", newline="\n")
+        hello = recv_json(reader)
         if not hello:
+            reader.close()
             conn.close()
             return
         if hello.get("client_token") != self.client_token:
             send_json(conn, {"ok": False, "reason": "invalid client token"})
+            reader.close()
             conn.close()
             return
         if hello.get("match_id") != self.match_id:
             send_json(conn, {"ok": False, "reason": "invalid match_id"})
+            reader.close()
             conn.close()
             return
         if int(hello.get("room_id", -1)) != self.room_id:
             send_json(conn, {"ok": False, "reason": "invalid room_id"})
+            reader.close()
             conn.close()
             return
         role = (hello.get("role") or "player").lower()
         pname = hello.get("player_name")
         if not pname:
             send_json(conn, {"ok": False, "reason": "player_name required"})
+            reader.close()
             conn.close()
             return
         if role == "spectator":
             sid = pname
             if sid in self.spectators:
                 send_json(conn, {"ok": False, "reason": "spectator already connected"})
+                reader.close()
                 conn.close()
                 return
             self.spectators[sid] = conn
             send_json(conn, {"ok": True, "game_protocol_version": 1})
             self.send_spectator_state(conn)
             print(f"[server] spectator {sid} connected from {addr}")
+            self._spectator_loop(conn, reader, sid)
             return
         if not allow_players:
             send_json(conn, {"ok": False, "reason": "spectators only"})
+            reader.close()
             conn.close()
             return
         if pname not in self.players_order or pname in self.connections:
             send_json(conn, {"ok": False, "reason": "bad player"})
+            reader.close()
             conn.close()
             return
         self.connections[pname] = conn
         send_json(conn, {"ok": True, "assigned_player_index": self.players_order.index(pname), "game_protocol_version": 1})
         print(f"[server] player {pname} connected from {addr}")
+        reader.close()
 
     def accept_spectators(self, listener: socket.socket):
         while self.running:
@@ -326,11 +338,26 @@ class WordleServer:
                 break
             self.handle_handshake(conn, addr, allow_players=False)
 
-    def player_thread(self, pname: str):
-        conn = self.connections[pname]
+    def _spectator_loop(self, conn: socket.socket, reader: IO[str], sid: str) -> None:
         try:
             while self.running:
-                msg = recv_json(conn)
+                msg = recv_json(reader)
+                if not msg:
+                    break
+        finally:
+            with self.lock:
+                self.spectators.pop(sid, None)
+            try:
+                reader.close()
+            except Exception:
+                pass
+
+    def player_thread(self, pname: str):
+        conn = self.connections[pname]
+        reader = conn.makefile("r", encoding="utf-8", newline="\n")
+        try:
+            while self.running:
+                msg = recv_json(reader)
                 if not msg:
                     print(f"[server] {pname} disconnected")
                     self.finish_game(winner=self.other_player(pname), loser=pname, reason="disconnect")
@@ -347,6 +374,11 @@ class WordleServer:
         except Exception as exc:
             print(f"[server] error in player thread {pname}: {exc}")
             self.finish_game(winner=self.other_player(pname), loser=pname, reason="error")
+        finally:
+            try:
+                reader.close()
+            except Exception:
+                pass
 
     def handle_guess(self, pname: str, word: str):
         # Accept any alphabetic word with the correct length to keep play smooth across dictionaries.
