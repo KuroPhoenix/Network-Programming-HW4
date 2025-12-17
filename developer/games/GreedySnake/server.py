@@ -1,4 +1,5 @@
 import argparse
+import io
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, IO
 
 
 def _configure_logging(log_name: str) -> None:
@@ -42,6 +43,8 @@ COIN_COUNT = 30
 SNAKE_START_LEN = 3
 FIRE_TTL = 8
 FIRE_COOLDOWN = 1.0
+MAX_LINE_BYTES = 64 * 1024
+HEARTBEAT_INTERVAL = 5.0
 
 DIRS = {
     "UP": (0, -1),
@@ -234,7 +237,7 @@ class GreedySnakeServer:
     def _heartbeat(self) -> None:
         while self.running:
             self._report_status("HEARTBEAT", reason="heartbeat")
-            time.sleep(2.0)
+            time.sleep(HEARTBEAT_INTERVAL)
 
     def start(self) -> None:
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -261,8 +264,9 @@ class GreedySnakeServer:
             threading.Thread(target=self._handshake_and_handle, args=(conn, addr), daemon=True).start()
 
     def _handshake_and_handle(self, conn: socket.socket, addr) -> None:
+        conn_file = conn.makefile("r", encoding="utf-8", newline="\n")
         try:
-            hello = recv_json(conn)
+            hello = recv_json(conn_file)
             if not hello:
                 return
             player_name = str(hello.get("player_name") or "")
@@ -286,7 +290,7 @@ class GreedySnakeServer:
                 send_json(conn, {"ok": True, "game_protocol_version": 1})
                 send_json(conn, self._config_payload())
                 logger.warning("spectator connected from %s", addr)
-                self._spectator_loop(conn, sid)
+                self._spectator_loop(conn, conn_file, sid)
                 return
             if not player_name:
                 send_json(conn, {"ok": False, "reason": "player_name required"})
@@ -302,26 +306,30 @@ class GreedySnakeServer:
             send_json(conn, {"ok": True, "assigned_player_index": self.expected_players.index(player_name), "game_protocol_version": 1})
             send_json(conn, self._config_payload())
             logger.warning("player %s connected from %s", player_name, addr)
-            self._player_loop(conn, player_name)
+            self._player_loop(conn, conn_file, player_name)
         except Exception as exc:
             logger.warning("handshake failed: %s", exc)
         finally:
+            try:
+                conn_file.close()
+            except Exception:
+                pass
             try:
                 conn.close()
             except Exception:
                 pass
 
-    def _spectator_loop(self, conn: socket.socket, sid: str) -> None:
+    def _spectator_loop(self, conn: socket.socket, reader: IO[str], sid: str) -> None:
         while self.running:
-            msg = recv_json(conn)
+            msg = recv_json(reader)
             if not msg:
                 break
         with self.lock:
             self.spectators.pop(sid, None)
 
-    def _player_loop(self, conn: socket.socket, player_name: str) -> None:
+    def _player_loop(self, conn: socket.socket, reader: IO[str], player_name: str) -> None:
         while self.running:
-            msg = recv_json(conn)
+            msg = recv_json(reader)
             if not msg:
                 break
             mtype = msg.get("type")
@@ -345,10 +353,7 @@ class GreedySnakeServer:
                         snake.quit_flag = True
         with self.lock:
             self.connections.pop(player_name, None)
-            snake = self.snakes.get(player_name)
-            if snake and snake.alive:
-                snake.alive = False
-                snake.quit_flag = True
+            self._mark_snake_quit(player_name)
 
     def _config_payload(self) -> dict:
         return {
@@ -389,6 +394,14 @@ class GreedySnakeServer:
         if connected >= min(2, len(self.expected_players)) or time.time() >= self.start_deadline:
             self.match_started = True
             self.start_time = time.time()
+            self._settle_unconnected()
+
+    def _settle_unconnected(self) -> None:
+        with self.lock:
+            connected = set(self.connections.keys())
+        for name in self.expected_players:
+            if name not in connected:
+                self._mark_snake_quit(name)
 
     def _advance_fires(self) -> None:
         new_fires: List[Fire] = []
@@ -416,6 +429,12 @@ class GreedySnakeServer:
             if (x, y) in snake.body:
                 return snake
         return None
+
+    def _mark_snake_quit(self, name: str) -> None:
+        snake = self.snakes.get(name)
+        if snake and snake.alive:
+            snake.alive = False
+            snake.quit_flag = True
 
     def _move_snakes(self) -> None:
         proposed: Dict[str, Tuple[int, int]] = {}
@@ -482,12 +501,26 @@ class GreedySnakeServer:
 
     def _broadcast_state(self) -> None:
         state = self._state_payload()
-        for name, conn in list(self.connections.items()):
+        with self.lock:
+            connections = list(self.connections.items())
+            spectators = list(self.spectators.items())
+        dead_players: List[str] = []
+        dead_spectators: List[str] = []
+        for name, conn in connections:
             payload = dict(state)
             payload["you"] = name
-            send_json(conn, payload)
-        for conn in list(self.spectators.values()):
-            send_json(conn, state)
+            if not send_json(conn, payload):
+                dead_players.append(name)
+        for sid, conn in spectators:
+            if not send_json(conn, state):
+                dead_spectators.append(sid)
+        if dead_players or dead_spectators:
+            with self.lock:
+                for name in dead_players:
+                    self.connections.pop(name, None)
+                    self._mark_snake_quit(name)
+                for sid in dead_spectators:
+                    self.spectators.pop(sid, None)
 
     def _state_payload(self) -> dict:
         if self.match_started and self.start_time:
@@ -584,21 +617,19 @@ def send_json(conn: socket.socket, obj: Dict) -> bool:
         return False
 
 
-def recv_json(conn: socket.socket) -> Optional[Dict]:
-    buf = b""
+def recv_json(reader: IO[str]) -> Optional[Dict]:
     try:
-        while True:
-            chunk = conn.recv(1)
-            if not chunk:
-                return None
-            if chunk == b"\n":
-                break
-            buf += chunk
+        line = reader.readline(MAX_LINE_BYTES)
     except Exception as exc:
         logger.warning("recv_json failed: %s", exc)
         return None
+    if not line:
+        return None
+    if len(line) >= MAX_LINE_BYTES:
+        logger.warning("received line exceeds max (%d bytes); discarding", MAX_LINE_BYTES)
+        return None
     try:
-        return json.loads(buf.decode("utf-8"))
+        return json.loads(line)
     except Exception as exc:
         logger.warning("recv_json parse failed: %s", exc)
         return None

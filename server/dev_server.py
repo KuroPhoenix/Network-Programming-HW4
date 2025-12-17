@@ -35,6 +35,7 @@ class DevServer:
         logger.add(log_file_path, rotation="500 MB")
 
         self.host = cfg.DEV_SERVER_HOST_IP
+        self.bind_host = cfg.DEV_SERVER_BIND_HOST
         self.port = cfg.DEV_SERVER_HOST_PORT
 
         # setting up modules
@@ -48,8 +49,8 @@ class DevServer:
         Start the dev server and listen for incoming connections, then accepts connections.
         :return:
         """
-        sock = create_listener(self.host, self.port)
-        logger.info(f"Dev server listening on {self.host}:{self.port}")
+        sock = create_listener(self.bind_host, self.port)
+        logger.info(f"Dev server listening on {self.bind_host}:{self.port}")
         try:
             serve(sock, self.handle_client)
         except KeyboardInterrupt:
