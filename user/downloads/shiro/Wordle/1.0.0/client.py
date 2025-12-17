@@ -196,15 +196,25 @@ def main():
                     printed_rules = True
                 print_player_state(msg)
                 if not args.spectator and not msg.get("solved") and msg.get("attempts_left", 0) > 0:
-                    play = prompt_guess(msg.get("target_length", 5))
-                    try:
-                        send_json(conn, play)
-                    except (BrokenPipeError, ConnectionResetError):
-                        print("Connection closed while sending your move. Exiting.")
-                        return
-                    except Exception as e:
-                        print(f"Failed to send move: {e}")
-                        return
+                    target_len = msg.get("target_length", 5)
+                    while True:
+                        play = prompt_guess(target_len)
+                        if play.get("type") != "guess":
+                            break
+                        guess = str(play.get("word", "")).strip()
+                        if not guess.isalpha() or len(guess) != target_len:
+                            print(f"Error: word must be {target_len} letters")
+                            continue
+                        break
+                    if play.get("type") == "guess":
+                        try:
+                            send_json(conn, play)
+                        except (BrokenPipeError, ConnectionResetError):
+                            print("Connection closed while sending your move. Exiting.")
+                            return
+                        except Exception as e:
+                            print(f"Failed to send move: {e}")
+                            return
             elif mtype == "error":
                 print(f"Error: {msg.get('message')}")
             elif mtype == "game_over":
