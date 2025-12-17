@@ -165,10 +165,13 @@ def main():
                 elif mtype == "error":
                     print(f"Error: {msg.get('message')}")
                 elif mtype == "game_over":
+                    winners = msg.get("winners") or []
                     winner = msg.get("winner")
+                    if not winners and winner:
+                        winners = [winner]
                     reason = msg.get("reason")
-                    if winner:
-                        print(f"Game over. Winner: {winner} (reason: {reason})")
+                    if winners:
+                        print(f"Game over. Winners: {', '.join(winners)} (reason: {reason})")
                     else:
                         print(f"Game over. Reason: {reason}")
                     return
