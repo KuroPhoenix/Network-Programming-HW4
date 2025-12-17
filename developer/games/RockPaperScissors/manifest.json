@@ -1,6 +1,6 @@
 {
   "game_name": "RockPaperScissors",
-  "author": "stan",
+  "author": "bobtry ",
   "version": "1.0.0",
   "description": "Three-player Rock-Paper-Scissors with room-hosted server.",
   "type": "CLI",
