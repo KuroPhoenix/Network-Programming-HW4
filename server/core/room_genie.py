@@ -372,8 +372,10 @@ class RoomGenie:
         gmLauncher: GameLauncher,
         reviewMgr: ReviewManager | None = None,
         match_id: Optional[str] = None,
+        results: Optional[list] = None,
     ):
         temp_dir = None
+        played: set[str] = set()
         with self.lock:
             room = self.get_room(room_id)
             if match_id and room.match_id != match_id:
@@ -381,8 +383,18 @@ class RoomGenie:
                 return
             if winner:
                 room.wins[winner] = room.wins.get(winner, 0) + 1
+                played.add(winner)
             if loser:
                 room.losses[loser] = room.losses.get(loser, 0) + 1
+                played.add(loser)
+            if results:
+                try:
+                    for entry in results:
+                        player = entry.get("player")
+                        if player:
+                            played.add(str(player))
+                except Exception:
+                    logger.debug("failed to parse results for play history")
             _, temp_dir = self._mark_room_ending(room, clear_ready=True)
         gmLauncher.stop_room(room_id, match_id)
         self._cleanup_match_dir(temp_dir, match_id)
@@ -391,10 +403,8 @@ class RoomGenie:
             if room and (match_id is None or room.match_id == match_id):
                 self._finalize_room_cleanup(room)
             if reviewMgr and room:
-                if winner:
-                    reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), winner)
-                if loser:
-                    reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), loser)
+                for player in played:
+                    reviewMgr.add_play_history(str(room.metadata["game_name"]), str(room.metadata["version"]), player)
         logger.info(f"room {room_id} ended normally winner={winner} loser={loser}")
 
     def game_ended_with_error(self, err_msg: str, room_id: int, gmLauncher: GameLauncher, match_id: Optional[str] = None):

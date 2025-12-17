@@ -68,7 +68,15 @@ def report_game(payload: dict, genie: RoomGenie, gmLauncher: GameLauncher, revie
                 room.last_heartbeat = time.time()
             return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
         if status == "END":
-            genie.game_ended_normally(payload.get("winner", ""), payload.get("loser", ""), int(room_id), gmLauncher, reviewMgr, match_id=match_id)
+            genie.game_ended_normally(
+                payload.get("winner", ""),
+                payload.get("loser", ""),
+                int(room_id),
+                gmLauncher,
+                reviewMgr,
+                match_id=match_id,
+                results=payload.get("results"),
+            )
             logger.info(f"room {room_id} reported END")
             return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
         if status == "ERROR":
