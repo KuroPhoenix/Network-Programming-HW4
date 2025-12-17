@@ -5,7 +5,7 @@ from loguru import logger
 from server.core.protocol import Message, message_to_dict, message_from_dict
 
 
-MAX_LINE_BYTES = 64 * 1024
+MAX_LINE_BYTES = 256 * 1024
 
 
 class SocketLineReader:
@@ -22,10 +22,8 @@ class SocketLineReader:
                 line = self._buffer[: nl_index + 1]
                 del self._buffer[: nl_index + 1]
                 return line.decode(self.encoding)
-            if limit and len(self._buffer) >= limit:
-                line = bytes(self._buffer)
-                self._buffer.clear()
-                return line.decode(self.encoding)
+            if limit and len(self._buffer) > limit:
+                raise ValueError(f"line exceeds max bytes ({limit})")
             chunk = self.sock.recv(4096)
             if not chunk:
                 if not self._buffer:
@@ -111,5 +109,4 @@ def send_request(
     except Exception as exc:
         logger.exception(f"Failed to decode response for {mtype}: {exc}")
         return Message(type=mtype or "", status="error", code=199, message=str(exc))
-
 

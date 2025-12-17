@@ -164,7 +164,10 @@ class DevClient:
         return send_request(self.conn, self.file, self.token, GAME_DELETE_GAME, payload)
 
     def logout(self, username: str):
-        resp = send_request(self.conn, self.file, self.token, ACCOUNT_LOGOUT_DEVELOPER, {"username": username})
+        payload = {"token": self.token}
+        if username:
+            payload["username"] = username
+        resp = send_request(self.conn, self.file, self.token, ACCOUNT_LOGOUT_DEVELOPER, payload)
         return resp
 
     def list_players(self):

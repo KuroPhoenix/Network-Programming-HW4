@@ -57,7 +57,9 @@ def main():
                             print(f"Error [{resp.code}]: {resp.message}")
                     if action == "list":
                         # Show local manifests first, then server-side entries.
-                        local_entries = local_mgr.list_manifests()
+                        local_entries = [
+                            entry for entry in local_mgr.list_manifests() if entry.get("author") == username
+                        ]
                         page_start = 0
                         page_size = 4
                         aborted = False

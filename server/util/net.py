@@ -3,6 +3,8 @@ from collections import deque
 from typing import Tuple
 from loguru import logger
 
+MAX_LINE_BYTES = 256 * 1024
+
 def create_listener(host: str, port: int, *, backlog: int = 5, reuse_addr: bool = True) -> socket.socket:
     """
     :param host: IP address of the server
@@ -24,7 +26,7 @@ def recv_json_lines(
     conn,
     *,
     timeout: float | None = 300.0,
-    max_line_bytes: int = 64 * 1024,
+    max_line_bytes: int = MAX_LINE_BYTES,
     rate_limit: int = 50,
     rate_window: float = 1.0,
     cooldown: float = 1.0,
