@@ -29,6 +29,7 @@ def _configure_logging(log_name: str) -> None:
 
 _configure_logging("game_rps_client.log")
 logger = logging.getLogger(__name__)
+CHOICES = {"rock", "paper", "scissors"}
 
 
 def send_json(conn: socket.socket, obj: dict) -> bool:
