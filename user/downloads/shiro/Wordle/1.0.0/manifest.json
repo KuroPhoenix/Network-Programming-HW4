@@ -8,22 +8,31 @@
   "lobby_requires_download": true,
   "uploaded": false,
   "server": {
-    "command": "python3 server.py --port {port} --room {room_id} --token {token} --p1 {p1} --p2 {p2} --report_host {report_host} --report_port {report_port} --report_token {report_token}",
+    "command": "python3 server.py --port {port} --room {room_id} --p1 {p1} --p2 {p2} --report_host {report_host} --report_port {report_port}",
     "working_dir": ".",
     "env": {
       "ROOM_ID": "{room_id}",
       "PORT": "{port}",
-      "TOKEN": "{token}",
+      "MATCH_ID": "{match_id}",
+      "CLIENT_TOKEN": "{client_token}",
+      "REPORT_TOKEN": "{report_token}",
+      "CLIENT_TOKEN_PATH": "{client_token_path}",
+      "REPORT_TOKEN_PATH": "{report_token_path}",
       "PLAYER1": "{p1}",
-      "PLAYER2": "{p2}"
+      "PLAYER2": "{p2}",
+      "BIND_HOST": "{bind_host}"
     }
   },
   "client": {
-    "command": "python3 client.py --host {host} --port {port} --player {player_name} --token {token}",
+    "command": "python3 client.py --host {host} --port {port} --player {player_name}",
     "working_dir": ".",
     "env": {
       "PLAYER_NAME": "{player_name}",
-      "ROOM_TOKEN": "{token}"
+      "ROOM_ID": "{room_id}",
+      "MATCH_ID": "{match_id}",
+      "CLIENT_TOKEN": "{client_token}",
+      "CLIENT_TOKEN_PATH": "{client_token_path}",
+      "CLIENT_PROTOCOL_VERSION": "1"
     }
   },
   "assets": [

@@ -189,7 +189,17 @@ class UserClient:
             payload["version"] = version
         return send_request(self.conn, self.file, self.token, REVIEW_EDIT, payload)
 
-    def _launch_local_client(self, username: str, host: str, port: int, token: str, game_name: str, version: str):
+    def _launch_local_client(
+        self,
+        username: str,
+        host: str,
+        port: int,
+        room_id: int,
+        client_token: str,
+        match_id: str,
+        game_name: str,
+        version: str,
+    ):
         mgr = self._ensure_local_mgr(username)
         manifest = mgr.load_manifest(str(game_name), str(version))
         manifest_path = mgr._manifest_path(str(game_name), str(version))
@@ -198,13 +208,21 @@ class UserClient:
         ctx = {
             "host": host,
             "port": port,
-            "token": token,
+            "room_id": room_id,
+            "client_token": client_token,
+            "match_id": match_id,
             "player_name": username,
+            "client_protocol_version": 1,
+            "client_token_path": "",
         }
         cmd = shlex.split(client_cfg["command"].format(**ctx))
         workdir = (manifest_path.parent / client_cfg.get("working_dir", ".")).resolve()
         env = os.environ.copy()
         env.update({k: str(v).format(**ctx) for k, v in client_cfg.get("env", {}).items()})
+        env.setdefault("ROOM_ID", str(room_id))
+        env.setdefault("CLIENT_TOKEN", str(client_token))
+        env.setdefault("MATCH_ID", str(match_id))
+        env.setdefault("CLIENT_PROTOCOL_VERSION", "1")
         try:
             logger.info(f"launching local client for {game_name} v{version} user={username} cmd={cmd} cwd={workdir}")
             subprocess.Popen(cmd, cwd=workdir, env=env)
@@ -214,7 +232,7 @@ class UserClient:
 
     def start_game(self, room_id, game_name: str, username: str = "", ):
         """
-        Ask the server to start the room and then launch the local game client using the downloaded manifest.
+        Ask the server to start the room. Client launch happens after the room reaches IN_GAME.
         """
         payload = {"room_id": room_id}
         #Check game version
@@ -226,21 +244,6 @@ class UserClient:
         resp = send_request(self.conn, self.file, self.token, GAME_START, payload)
         if resp.status != "ok":
             return resp
-        launch = resp.payload["launch"] or {}
-        # Expect server to return host/port/token/game_name/version
-        host = launch.get("host") or USER_SERVER_HOST
-        port = launch.get("port")
-        token = launch.get("token")
-        game_name = launch.get("game_name") or (launch.get("metadata") or {}).get("game_name")
-        version = launch.get("version") or (launch.get("metadata") or {}).get("version")
-        if not all([port, token, game_name, version]):
-            raise ValueError("GAME_START missing launch details (host/port/token/game/version)")
-
-        try:
-            self._launch_local_client(username, host, int(port), str(token), str(game_name), str(version))
-            logger.info(f"started local client for room {room_id} on port {port}")
-        except Exception as exc:
-            return Message(type="LOCAL.LAUNCH", status="error", code=3, message=str(exc))
         return resp
 
     def launch_started_game(self, room_id: int, username: str):
@@ -253,16 +256,17 @@ class UserClient:
         room = room_resp.payload or {}
         status = room.get("status")
         port = room.get("port")
-        token = room.get("token")
+        client_token = room.get("client_token")
+        match_id = room.get("match_id")
         metadata = room.get("metadata") or {}
         game_name = metadata.get("game_name")
         version = metadata.get("version")
-        if status != "IN_GAME" or not all([port, token, game_name, version]):
+        if status != "IN_GAME" or not all([port, client_token, match_id, game_name, version]):
             return Message(type="LOCAL.LAUNCH", status="error", code=2, message="Game not started or missing launch info")
         # ensure local version
         try:
             self.validate_game(username, game_name)
-            self._launch_local_client(username, USER_SERVER_HOST, int(port), str(token), str(game_name), str(version))
+            self._launch_local_client(username, USER_SERVER_HOST, int(port), int(room_id), str(client_token), str(match_id), str(game_name), str(version))
             logger.info(f"joined running game room {room_id} user={username} port={port}")
             return Message(type="LOCAL.LAUNCH", status="ok", code=0, payload={"room_id": room_id})
         except Exception as exc:

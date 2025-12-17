@@ -4,6 +4,7 @@ import socket
 import sys
 import threading
 import time
+import os
 from typing import Dict, Optional
 
 from board import ConnectFourBoard
@@ -29,6 +30,19 @@ def recv_json(conn: socket.socket) -> Optional[dict]:
             buf += chunk
     except Exception:
         return None
+
+
+def _read_secret(env_name: str, path_env_name: str) -> str:
+    val = os.getenv(env_name)
+    if val:
+        return val
+    path = os.getenv(path_env_name)
+    if path:
+        try:
+            return open(path, "r", encoding="utf-8").read().strip()
+        except Exception:
+            return ""
+    return ""
     try:
         return json.loads(buf.decode("utf-8"))
     except Exception:
@@ -36,13 +50,28 @@ def recv_json(conn: socket.socket) -> Optional[dict]:
 
 
 class ConnectFourServer:
-    def __init__(self, port: int, room: str, token: str, p1: str, p2: str, report_host: str, report_port: int, report_token: str):
+    def __init__(
+        self,
+        port: int,
+        room_id: str,
+        client_token: str,
+        match_id: str,
+        p1: str,
+        p2: str,
+        bind_host: str = "0.0.0.0",
+        report_host: str | None = None,
+        report_port: int | None = None,
+        report_token: str = "",
+    ):
         self.port = port
-        self.room = room
-        self.token = token
+        self.room_id = int(room_id)
+        self.room = str(room_id)
+        self.client_token = client_token
+        self.match_id = match_id
+        self.bind_host = bind_host
         self.report_host = report_host
         self.report_port = report_port
-        self.report_token = report_token or token
+        self.report_token = report_token
         self.expected_players = [p1, p2]
         self.board = ConnectFourBoard()
         self.connections: Dict[str, socket.socket] = {}
@@ -55,11 +84,12 @@ class ConnectFourServer:
     def start(self):
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind(("0.0.0.0", self.port))
+        listener.bind((self.bind_host, self.port))
         listener.listen(2)
         listener.settimeout(1.0)
         self.listener = listener
-        print(f"[server] ConnectFour listening on 0.0.0.0:{self.port} room={self.room}")
+        print(f"[server] ConnectFour listening on {self.bind_host}:{self.port} room={self.room}")
+        self._report_status("STARTED")
         try:
             while self.running and len(self.connections) < 2:
                 try:
@@ -75,7 +105,7 @@ class ConnectFourServer:
             if len(self.connections) < 2:
                 return
 
-            self._report_status("RUNNING")
+            threading.Thread(target=self._heartbeat, daemon=True).start()
             self._broadcast_state()
 
             # Start player loops
@@ -108,17 +138,33 @@ class ConnectFourServer:
         except Exception:
             pass
         hello = recv_json(conn)
-        if not hello or hello.get("token") != self.token:
+        if not hello:
             conn.close()
             return
-        player = hello.get("player")
+        if hello.get("client_token") != self.client_token:
+            send_json(conn, {"ok": False, "reason": "invalid client token"})
+            conn.close()
+            return
+        if hello.get("match_id") != self.match_id:
+            send_json(conn, {"ok": False, "reason": "invalid match_id"})
+            conn.close()
+            return
+        if int(hello.get("room_id", -1)) != self.room_id:
+            send_json(conn, {"ok": False, "reason": "invalid room_id"})
+            conn.close()
+            return
+        player = hello.get("player_name")
+        if not player:
+            send_json(conn, {"ok": False, "reason": "player_name required"})
+            conn.close()
+            return
         if player not in self.expected_players:
-            send_json(conn, {"type": "error", "message": "player not allowed in this room"})
+            send_json(conn, {"ok": False, "reason": "player not allowed in this room"})
             conn.close()
             return
         with self.lock:
             if player in self.connections:
-                send_json(conn, {"type": "error", "message": "duplicate player"})
+                send_json(conn, {"ok": False, "reason": "duplicate player"})
                 conn.close()
                 return
             self.connections[player] = conn
@@ -126,7 +172,7 @@ class ConnectFourServer:
             conn.settimeout(None)
         except Exception:
             pass
-        send_json(conn, {"type": "ok", "room": self.room, "you": player})
+        send_json(conn, {"ok": True, "assigned_player_index": self.expected_players.index(player), "game_protocol_version": 1})
         print(f"[server] player {player} connected from {addr}")
 
     def _player_loop(self, player: str):
@@ -217,29 +263,49 @@ class ConnectFourServer:
         for p, conn in list(self.connections.items()):
             send_json(conn, payload)
         status = "END" if winner or reason == "draw" else "ERROR"
-        self._report_status(status, winner=winner, err_msg=reason)
+        results = []
+        if winner:
+            results.append({"player": winner, "outcome": "WIN", "rank": 1, "score": None})
+            loser = self._opponent(winner)
+            if loser:
+                results.append({"player": loser, "outcome": "LOSE", "rank": 2, "score": None})
+        if not results:
+            for pname in self.expected_players:
+                results.append({"player": pname, "outcome": "DRAW", "rank": None, "score": None})
+        self._report_status(status, winner=winner, err_msg=reason, results=results)
         print(f"[server] game ended winner={winner} reason={reason}")
 
-    def _report_status(self, status: str, winner: Optional[str] = None, err_msg: Optional[str] = None):
+    def _report_status(self, status: str, winner: Optional[str] = None, err_msg: Optional[str] = None, results: Optional[list] = None):
         if not self.report_host or not self.report_port:
             return
         payload = {
             "type": "GAME.REPORT",
             "status": status,
-            "room_id": self.room,
+            "room_id": self.room_id,
+            "match_id": self.match_id,
             "report_token": self.report_token,
+            "timestamp": time.time(),
         }
+        if status == "STARTED":
+            payload["port"] = self.port
         if winner:
             payload["winner"] = winner
             payload["loser"] = self._opponent(winner)
         if err_msg:
             payload["err_msg"] = err_msg
             payload["reason"] = err_msg
+        if results is not None:
+            payload["results"] = results
         try:
             with socket.create_connection((self.report_host, int(self.report_port)), timeout=3) as s:
                 send_json(s, payload)
         except Exception:
             print("[server] failed to report status to lobby")
+
+    def _heartbeat(self):
+        while self.running:
+            self._report_status("HEARTBEAT")
+            time.sleep(10)
 
     def _opponent(self, player: str) -> Optional[str]:
         if player == self.expected_players[0]:
@@ -253,27 +319,50 @@ def parse_args():
     parser = argparse.ArgumentParser(description="ConnectFour game server")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--room", required=True)
-    parser.add_argument("--token", required=True)
     parser.add_argument("--p1", required=True)
     parser.add_argument("--p2", required=True)
+    parser.add_argument("--bind_host", default=os.getenv("BIND_HOST", "0.0.0.0"))
+    parser.add_argument("--match_id", default=os.getenv("MATCH_ID", ""))
+    parser.add_argument("--client_token", default="")
+    parser.add_argument("--report_token", default="")
+    parser.add_argument("--client_token_path", default="")
+    parser.add_argument("--report_token_path", default="")
     parser.add_argument("--report_host", required=True)
     parser.add_argument("--report_port", type=int, required=True)
-    parser.add_argument("--report_token", default="")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     try:
+        def resolve_secret(explicit: str, explicit_path: str, env_name: str, path_env: str) -> str:
+            if explicit:
+                return explicit
+            if explicit_path:
+                try:
+                    return open(explicit_path, "r", encoding="utf-8").read().strip()
+                except Exception:
+                    return ""
+            return _read_secret(env_name, path_env)
+
+        client_token = resolve_secret(args.client_token, args.client_token_path, "CLIENT_TOKEN", "CLIENT_TOKEN_PATH")
+        report_token = resolve_secret(args.report_token, args.report_token_path, "REPORT_TOKEN", "REPORT_TOKEN_PATH")
+        match_id = args.match_id or os.getenv("MATCH_ID", "")
+        if not client_token or not report_token or not match_id:
+            print("[server] missing required client_token/report_token/match_id; aborting")
+            sys.exit(2)
+
         server = ConnectFourServer(
             port=args.port,
-            room=str(args.room),
-            token=args.token,
+            room_id=str(args.room),
+            client_token=client_token,
+            match_id=match_id,
             p1=args.p1,
             p2=args.p2,
+            bind_host=args.bind_host,
             report_host=args.report_host,
             report_port=args.report_port,
-            report_token=args.report_token,
+            report_token=report_token,
         )
         server.start()
     except Exception as exc:

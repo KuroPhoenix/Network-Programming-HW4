@@ -1,4 +1,5 @@
 from base64 import b64decode, b64encode
+import time
 from server.core.game_manager import GameManager
 from server.core.storage_manager import StorageManager
 from server.core.game_launcher import GameLauncher
@@ -11,37 +12,68 @@ def report_game(payload: dict, genie: RoomGenie, gmLauncher: GameLauncher, revie
     """
     Receives game status updates from game servers and forwards to RoomGenie.
     Expected payload:
-      status: RUNNING | END | ERROR
+      status: STARTED | HEARTBEAT | END | ERROR
       room_id: int
-      winner/loser: usernames (for END)
+      match_id: str
+      report_token: str
+      winner/loser: usernames (for END, optional)
+      results: list (for END, optional)
       err_msg/reason: strings (for ERROR/INFO)
     """
     status = (payload.get("status") or "").upper()
     room_id = payload.get("room_id") or payload.get("room")
+    match_id = payload.get("match_id")
+    report_token = payload.get("report_token")
     logger.info(f"report_game room_id={room_id} status={status} keys={list(payload.keys())}")
     if room_id is None:
         raise ValueError("room_id required")
-    # Verify report_token against room
+    if not match_id:
+        raise ValueError("match_id required")
+    if not report_token:
+        raise ValueError("report_token required")
+    # Verify report_token and match_id under lock to avoid stale reads
     try:
-        room = genie.get_room(int(room_id))
+        with genie.lock:
+            room = genie.get_room(int(room_id))
+            if room.report_token and report_token != room.report_token:
+                logger.warning(f"invalid report token for room {room_id}")
+                return {"status": "error", "code": 101, "message": "invalid report token"}
+            if room.match_id and match_id != room.match_id:
+                logger.warning(f"invalid match_id for room {room_id}")
+                return {"status": "error", "code": 101, "message": "invalid match_id"}
     except Exception as e:
         logger.warning(f"report_game could not find room {room_id}: {e}")
         return {"status": "error", "code": 103, "message": str(e)}
-    report_token = payload.get("report_token")
-    if report_token and room.token and report_token != room.token:
-        logger.warning(f"invalid report token for room {room_id}")
-        return {"status": "error", "code": 101, "message": "invalid report token"}
 
     try:
-        if status == "RUNNING":
+        if status == "STARTED":
+            with genie.lock:
+                room = genie.get_room(int(room_id))
+                if room.match_id != match_id:
+                    return {"status": "error", "code": 101, "message": "invalid match_id"}
+                if not room.port and payload.get("port"):
+                    try:
+                        room.port = int(payload.get("port"))
+                    except Exception:
+                        pass
+                room.status = "IN_GAME"
+                room.registered = True
+                room.last_heartbeat = time.time()
+            return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
+        if status == "HEARTBEAT":
+            with genie.lock:
+                room = genie.get_room(int(room_id))
+                if room.match_id != match_id:
+                    return {"status": "error", "code": 101, "message": "invalid match_id"}
+                room.last_heartbeat = time.time()
             return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
         if status == "END":
-            genie.game_ended_normally(payload.get("winner", ""), payload.get("loser", ""), int(room_id), gmLauncher, reviewMgr)
+            genie.game_ended_normally(payload.get("winner", ""), payload.get("loser", ""), int(room_id), gmLauncher, reviewMgr, match_id=match_id)
             logger.info(f"room {room_id} reported END")
             return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status}}
         if status == "ERROR":
             err_msg = payload.get("err_msg") or payload.get("reason") or "unknown error"
-            genie.game_ended_with_error(err_msg, int(room_id), gmLauncher)
+            genie.game_ended_with_error(err_msg, int(room_id), gmLauncher, match_id=match_id)
             logger.error(f"room {room_id} reported ERROR: {err_msg}")
             return {"status": "ok", "code": 0, "payload": {"room_id": room_id, "status": status, "err_msg": err_msg}}
         return {"status": "error", "code": 100, "message": "UNKNOWN_STATUS"}

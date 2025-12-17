@@ -1,4 +1,5 @@
-import socket, json, threading
+import socket, json, threading, time
+from collections import deque
 from typing import Tuple
 from loguru import logger
 
@@ -19,7 +20,15 @@ def create_listener(host: str, port: int, *, backlog: int = 5, reuse_addr: bool 
     return s
 
 
-def recv_json_lines(conn, *, timeout: float | None = 300.0):
+def recv_json_lines(
+    conn,
+    *,
+    timeout: float | None = 300.0,
+    max_line_bytes: int = 64 * 1024,
+    rate_limit: int = 50,
+    rate_window: float = 1.0,
+    cooldown: float = 1.0,
+):
     """
     reads JSON lines from a socket connection with an optional inactivity timeout.
     :param conn:
@@ -32,6 +41,9 @@ def recv_json_lines(conn, *, timeout: float | None = 300.0):
         except Exception:
             pass
     with conn.makefile("r") as f:
+        msg_times = deque()
+        rate_violations = deque()
+        cooldown_until = 0.0
         while True:
             try:
                 line = f.readline()
@@ -43,11 +55,33 @@ def recv_json_lines(conn, *, timeout: float | None = 300.0):
                 break
             if not line:
                 break
+            if max_line_bytes and len(line) > max_line_bytes:
+                logger.warning(f"discarding oversized line ({len(line)} bytes)")
+                continue
+            now = time.time()
+            if cooldown_until and now < cooldown_until:
+                continue
+            if rate_limit:
+                while msg_times and now - msg_times[0] > rate_window:
+                    msg_times.popleft()
+                if len(msg_times) >= rate_limit:
+                    rate_violations.append(now)
+                    while rate_violations and now - rate_violations[0] > 10:
+                        rate_violations.popleft()
+                    if len(rate_violations) >= 5:
+                        logger.warning("rate limit sustained; closing connection")
+                        break
+                    cooldown_until = now + cooldown
+                    logger.warning("rate limit exceeded; dropping messages for cooldown window")
+                    continue
             try:
-                yield json.loads(line)
+                obj = json.loads(line)
             except Exception as e:
-                logger.warning(f"failed to parse JSON line; closing connection: {e}")
-                break
+                logger.warning(f"failed to parse JSON line; discarding: {e}")
+                continue
+            if rate_limit:
+                msg_times.append(now)
+            yield obj
 
 
 def send_json(conn, obj):

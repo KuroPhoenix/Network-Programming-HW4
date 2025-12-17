@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from loguru import logger
 
 from server.core.room_genie import RoomGenie
@@ -18,10 +17,9 @@ def list_players(payload: dict, auth: Authenticator) -> dict:
     return {"status": "ok", "code": 0, "payload": {"players": players}}
 
 def get_room(payload: dict, genie: RoomGenie) -> dict:
-    room = genie.get_room(payload.get("room_id"))
-    data = asdict(room)
-    data["ready_players"] = list(room.ready_players)
-    logger.info(f"get_room room_id={payload.get('room_id')} status={room.status}")
+    room_id = payload.get("room_id")
+    data = genie.snapshot_room(room_id)
+    logger.info(f"get_room room_id={room_id} status={data.get('status')}")
     return {"status": "ok", "code": 0, "payload": data}
 
 def create_room(payload: dict, gmgr: GameManager, genie: RoomGenie) -> dict:

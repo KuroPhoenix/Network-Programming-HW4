@@ -4,6 +4,7 @@ import socket
 import sys
 import threading
 import time
+import os
 from queue import Queue, Empty
 from typing import Optional, Dict
 
@@ -40,6 +41,19 @@ def recv_json(conn: socket.socket) -> Optional[dict]:
             buf += chunk
     except Exception:
         return None
+
+
+def _read_secret(env_name: str, path_env_name: str) -> str:
+    val = os.getenv(env_name)
+    if val:
+        return val
+    path = os.getenv(path_env_name)
+    if path:
+        try:
+            return open(path, "r", encoding="utf-8").read().strip()
+        except Exception:
+            return ""
+    return ""
     try:
         return json.loads(buf.decode("utf-8"))
     except Exception:
@@ -98,8 +112,17 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--player", required=True)
-    parser.add_argument("--token", required=True)
+    parser.add_argument("--room_id", type=int, default=int(os.getenv("ROOM_ID", "0") or 0))
+    parser.add_argument("--match_id", default=os.getenv("MATCH_ID", ""))
+    parser.add_argument("--client_token", default=os.getenv("CLIENT_TOKEN", ""))
+    parser.add_argument("--client_protocol_version", type=int, default=int(os.getenv("CLIENT_PROTOCOL_VERSION", "1") or 1))
     args = parser.parse_args()
+    client_token = args.client_token or _read_secret("CLIENT_TOKEN", "CLIENT_TOKEN_PATH")
+    match_id = args.match_id or os.getenv("MATCH_ID", "")
+    room_id = args.room_id or int(os.getenv("ROOM_ID", "0") or 0)
+    if not client_token or not match_id or not room_id:
+        print("Missing client_token/match_id/room_id; check environment or args.")
+        sys.exit(2)
 
     conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     connected = False
@@ -114,7 +137,19 @@ def main():
         print("Unable to connect to server.")
         sys.exit(1)
 
-    send_json(conn, {"type": "hello", "player": args.player, "token": args.token, "role": "player"})
+    hello = {
+        "room_id": room_id,
+        "match_id": match_id,
+        "player_name": args.player,
+        "client_token": client_token,
+        "client_protocol_version": args.client_protocol_version,
+        "role": "player",
+    }
+    send_json(conn, hello)
+    resp = recv_json(conn)
+    if not resp or not resp.get("ok"):
+        print(f"Handshake rejected: {resp.get('reason') if resp else 'no response'}")
+        sys.exit(2)
 
     messages: Queue = Queue()
     disconnected = threading.Event()

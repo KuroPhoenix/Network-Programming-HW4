@@ -11,31 +11,33 @@ This folder holds store-ready games that can be uploaded and run by the platform
 ## Manifest requirements
 See `developer/template/manifest_template.json` for shape. Required fields:
 - `game_name`, `version`, `type` (`CLI|GUI|2P|Multi`), `description`, `max_players`.
-- `server.command` and `client.command`: use placeholders `{host}`, `{port}`, `{room_id}`, `{token}`, `{player_name}`, `{p1}`, `{p2}`, `{report_host}`, `{report_port}`, `{report_token}`. GameLauncher fills these.
+- `server.command` and `client.command`: use placeholders like `{host}`, `{port}`, `{room_id}`, `{match_id}`, `{player_name}`, `{p1}`, `{p2}`, `{player_count}`, `{players_json_path}`, `{report_host}`, `{report_port}`, `{bind_host}`. GameLauncher fills these. Do not place `{client_token}` or `{report_token}` in command args; pass them via env or token files.
 - `server.working_dir` / `client.working_dir`: relative to the game root.
 - `assets` list (globs) and optional `healthcheck`. Any file matching `assets` is shipped with the upload and later downloaded to players. Put bulky data (e.g., dictionaries, sprites, sounds) under `assets/`.
 - Optional `env` maps for server/client are allowed; values can also use placeholders.
 The server stores the manifest with each uploaded version; keep it accurate.
 
 ### Example command placeholders
-- Server: `python server/main.py --port {port} --room {room_id} --token {token} --p1 {p1} --p2 {p2} --report_host {report_host} --report_port {report_port} --report_token {report_token}`
-- Client: `python client/main.py --host {host} --port {port} --player {player_name} --token {token}`
+- Server: `python server/main.py --port {port} --room {room_id} --p1 {p1} --p2 {p2} --report_host {report_host} --report_port {report_port}`
+- Client: `python client/main.py --host {host} --port {port} --player {player_name}`
 
 ## Server runtime contract
 - Your game server is launched by GameLauncher with args and env from the manifest. It must:
-  - Listen on the provided `{port}` and trust `{token}` for auth/room binding.
-  - Accept at least two players; if more players are needed, use the placeholders (`{p1}`, `{p2}` etc.) or the hello payload to map connections.
+  - Bind to `{bind_host}` and listen on `{port}`.
+  - Validate `client_token` and `match_id` during the client handshake.
+  - Accept at least two players; for more players, use `{p1}`, `{p2}`, `{player_count}`, or `{players_json_path}` to map connections.
   - Speak newline-delimited JSON; see helper `send_json`/`recv_json` in existing games.
-  - Report lifecycle to the lobby: POST a `GAME.REPORT` message (JSON line) to `{report_host}:{report_port}` with fields `{"type":"GAME.REPORT","status":"RUNNING|END|ERROR","room_id":..., "report_token":...}` plus winner/loser/err_msg/reason as appropriate. See `developer/games/Tetris/server.py` for a reference.
+  - Report lifecycle to the lobby: send `GAME.REPORT` (JSON line) to `{report_host}:{report_port}` with fields `{"type":"GAME.REPORT","status":"STARTED|HEARTBEAT|END|ERROR","room_id":..., "match_id":..., "report_token":...}` plus winner/loser/results/err_msg/reason as appropriate.
+  - Send `STARTED` only after the server can accept the client handshake, and `HEARTBEAT` periodically.
   - On graceful shutdown or KeyboardInterrupt, send an `ERROR` report so the lobby can free the room.
   - Handle disconnects: if a player drops, pick a winner/loser and report with reason `disconnect`.
   - Clean up: close sockets, stop threads, and exit without hanging the parent server.
 
 ## Client runtime contract
-- The platform launches your client with `{host}`, `{port}`, `{token}`, and `{player_name}`.
+- The platform launches your client with `{host}`, `{port}`, `{room_id}`, `{match_id}`, `{client_token}`, and `{player_name}`.
 - On Ctrl-C or user quit, send a quit/surrender message to the game server before exiting so the server can finish cleanly.
 - Tolerate server `error` messages and closed sockets without crashing.
-- Use the token in your hello so the server can reject stray connections.
+- Use `client_token` and `match_id` in your handshake so the server can reject stray connections.
 
 ## Error handling
 - Wrap network JSON parse/send in try/except; log and continue or exit cleanly.
@@ -45,14 +47,14 @@ The server stores the manifest with each uploaded version; keep it accurate.
 
 ## Communication pattern
 - Transport: TCP, one JSON object per line (UTF-8).
-- Handshake: send a hello line that includes `{token}` and the player name so the server can validate and place the connection. Example: `{"type":"hello","player":"Alice","role":"player","token":"<token>"}`.
+- Handshake: first message must include `{room_id}`, `{match_id}`, `{player_name}`, `{client_token}`, and `{client_protocol_version}`. Example: `{"room_id":1,"match_id":"...","player_name":"Alice","client_token":"...","client_protocol_version":1}`.
 - State updates: broadcast JSON lines (`tick`/`state`) to all players.
 - Commands: accept simple JSON commands from clients (`cmd`, `play`, `surrender`, etc.) and validate per-room token/identity.
 
 ## Checklist for a new game
 - [ ] `manifest.json` filled with correct commands/placeholders and working dirs.
-- [ ] Server accepts hello with token and rejects mismatches.
-- [ ] Server reports `RUNNING`, `END`, and `ERROR` to `{report_host}:{report_port}` with `report_token`.
+- [ ] Server accepts handshake with `client_token` + `match_id` and rejects mismatches.
+- [ ] Server reports `STARTED`, `HEARTBEAT`, `END`, and `ERROR` to `{report_host}:{report_port}` with `report_token` and `match_id`.
 - [ ] Client quits gracefully (sends surrender/quit) on Ctrl-C.
 - [ ] No external paths; all assets bundled under the game folder.
 - [ ] Uses newline-delimited JSON; tolerant of disconnects and malformed input.

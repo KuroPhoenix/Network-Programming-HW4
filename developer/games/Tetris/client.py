@@ -5,6 +5,7 @@ import socket
 import sys
 import threading
 import time
+import os
 from typing import Optional, Dict
 
 try:
@@ -30,6 +31,19 @@ def recv_json(conn: socket.socket) -> Optional[dict]:
         return json.loads(buf.decode("utf-8"))
     except Exception:
         return None
+
+
+def _read_secret(env_name: str, path_env_name: str) -> str:
+    val = os.getenv(env_name)
+    if val:
+        return val
+    path = os.getenv(path_env_name)
+    if path:
+        try:
+            return open(path, "r", encoding="utf-8").read().strip()
+        except Exception:
+            return ""
+    return ""
 
 
 def render(board: list[str], score: int, lines: int, alive: bool, opponent: dict, hold: Optional[str]):
@@ -177,15 +191,37 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--player", required=True)
-    parser.add_argument("--token", required=True)
+    parser.add_argument("--room_id", type=int, default=int(os.getenv("ROOM_ID", "0") or 0))
+    parser.add_argument("--match_id", default=os.getenv("MATCH_ID", ""))
+    parser.add_argument("--client_token", default=os.getenv("CLIENT_TOKEN", ""))
+    parser.add_argument("--client_protocol_version", type=int, default=int(os.getenv("CLIENT_PROTOCOL_VERSION", "1") or 1))
     parser.add_argument("--spectator", action="store_true", help="connect as spectator")
     parser.add_argument("--gui", action="store_true", help="launch with Tkinter GUI if available")
     args = parser.parse_args()
+    client_token = args.client_token or _read_secret("CLIENT_TOKEN", "CLIENT_TOKEN_PATH")
+    match_id = args.match_id or os.getenv("MATCH_ID", "")
+    room_id = args.room_id or int(os.getenv("ROOM_ID", "0") or 0)
+    if not client_token or not match_id or not room_id:
+        print("Missing client_token/match_id/room_id; check environment or args.")
+        sys.exit(2)
 
     conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     conn.connect((args.host, args.port))
     role = "spectator" if args.spectator else "player"
-    send_json(conn, {"type": "hello", "player": args.player, "token": args.token, "role": role})
+    hello = {
+        "room_id": room_id,
+        "match_id": match_id,
+        "player_name": args.player,
+        "client_token": client_token,
+        "client_protocol_version": args.client_protocol_version,
+        "role": role,
+    }
+    send_json(conn, hello)
+    resp = recv_json(conn)
+    if not resp or not resp.get("ok"):
+        print(f"Handshake rejected: {resp.get('reason') if resp else 'no response'}")
+        return
+    print("Connected. Waiting for ticks...")
 
     cmd_queue: queue.Queue = queue.Queue()
     gui_renderer: Optional[TetrisGUI] = None
@@ -195,6 +231,8 @@ def main():
         except Exception as e:
             print(f"GUI not available ({e}), falling back to console.")
             gui_renderer = None
+    if gui_renderer:
+        gui_renderer.set_status("Connected. Waiting for ticks...")
 
     if not args.spectator:
         if gui_renderer:
@@ -211,11 +249,7 @@ def main():
                 print("Disconnected from server.")
                 break
             mtype = msg.get("type")
-            if mtype == "ok":
-                print("Connected. Waiting for ticks...")
-                if gui_renderer:
-                    gui_renderer.set_status("Connected. Waiting for ticks...")
-            elif mtype == "tick":
+            if mtype == "tick":
                 if args.spectator and "players" in msg:
                     if gui_renderer:
                         gui_renderer.render_spectator(msg.get("players", {}))

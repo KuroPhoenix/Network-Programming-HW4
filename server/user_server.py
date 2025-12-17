@@ -15,7 +15,7 @@ from server.core.protocol import ACCOUNT_REGISTER_PLAYER, ACCOUNT_LOGIN_PLAYER, 
     REVIEW_EDIT, REVIEW_SEARCH_GAME, REVIEW_ADD, ROOM_GET, USER_LIST, REVIEW_ELIGIBILITY_CHECK, ROOM_READY
 from server.util.net import create_listener, recv_json_lines, send_json, serve
 from server.util.validator import require_token
-from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT
+from server.core.config import USER_SERVER_HOST, USER_SERVER_HOST_PORT, USER_SERVER_BIND_HOST
 from server.core.protocol import Message, message_to_dict
 from server.core.room_genie import RoomGenie
 from server.core.game_launcher import GameLauncher
@@ -37,6 +37,7 @@ class user_server:
         ensure_global_logger()
         logger.add(log_file_path, rotation="500 MB")
         self.host = USER_SERVER_HOST
+        self.bind_host = USER_SERVER_BIND_HOST
         self.port = USER_SERVER_HOST_PORT
 
         # setting up auth + game/storage managers
@@ -51,8 +52,8 @@ class user_server:
         Start the user server and listen for incoming connections, then accepts connections.
         :return:
         """
-        sock = create_listener(self.host, self.port)
-        logger.info(f"user server listening on {self.host}:{self.port}")
+        sock = create_listener(self.bind_host, self.port)
+        logger.info(f"user server listening on {self.bind_host}:{self.port}")
         try:
             serve(sock, self.handle_client)
         except KeyboardInterrupt:
