@@ -154,8 +154,8 @@ class RPSServer:
                     if len(self.moves) >= 2 and len(self.moves) == len(self.connections):
                         moves_copy = dict(self.moves)
                         players_order = list(self.connections.keys())
-                        winner, loser, reason = self.decide_winner(moves_copy, players_order)
-                        self.finish_game(winner, loser, reason)
+                        winners, losers, reason = self.decide_winner(moves_copy, players_order)
+                        self.finish_game(winners, losers, reason)
                         return
                 time.sleep(0.1)
         except Exception as exc:
@@ -215,7 +215,8 @@ class RPSServer:
                 msg = recv_json(conn)
                 if not msg:
                     print(f"[server] {pname} disconnected")
-                    self.finish_game(self.pick_alt_winner(exclude=pname), pname, reason="disconnect")
+                    alt = self.pick_alt_winner(exclude=pname)
+                    self.finish_game([alt] if alt else [], [pname], reason="disconnect")
                     return
                 mtype = msg.get("type")
                 if mtype == "move":
@@ -227,13 +228,15 @@ class RPSServer:
                         self.moves[pname] = move
                     self.broadcast_state()
                 elif mtype == "surrender":
-                    self.finish_game(self.pick_alt_winner(exclude=pname), pname, reason="surrender")
+                    alt = self.pick_alt_winner(exclude=pname)
+                    self.finish_game([alt] if alt else [], [pname], reason="surrender")
                     return
                 else:
                     send_json(conn, {"type": "error", "message": "unknown command"})
         except Exception as exc:
             logger.warning("error in player thread %s: %s", pname, exc)
-            self.finish_game(self.pick_alt_winner(exclude=pname), pname, reason="error")
+            alt = self.pick_alt_winner(exclude=pname)
+            self.finish_game([alt] if alt else [], [pname], reason="error")
 
     def broadcast_state(self):
         with self.lock:
@@ -254,10 +257,9 @@ class RPSServer:
     def decide_winner(self, moves_copy: Optional[Dict[str, str]] = None, players_order: Optional[list[str]] = None):
         """
         With up to 3 players:
-          - If all same move → tie (deterministic winner = first player).
-          - If all three moves present → tie (first player wins tie-break).
-          - If two moves present → move that beats the other wins; all players with that move are winners,
-            tie-broken deterministically by name.
+          - If all same move → tie (surface all as winners for display; report tie_break).
+          - If all three moves present → tie (surface all as winners; report tie_break).
+          - If two moves present → move that beats the other wins; all players with that move are winners.
         """
         beats = {("rock", "scissors"), ("scissors", "paper"), ("paper", "rock")}
         if moves_copy is None or players_order is None:
@@ -266,9 +268,9 @@ class RPSServer:
                 players_order = list(self.connections.keys())
         unique_moves = set(moves_copy.values())
         if len(unique_moves) == 1 or len(unique_moves) == 3:
-            winner = players_order[0] if players_order else None
-            loser = next((p for p in players_order if p != winner), None)
-            return winner, loser, "tie_break"
+            winners = sorted(players_order)
+            losers: list[str] = []
+            return winners, losers, "tie_break"
         # Two-move case
         mlist = list(unique_moves)
         win_move = None
@@ -277,26 +279,30 @@ class RPSServer:
         elif (mlist[1], mlist[0]) in beats:
             win_move = mlist[1]
         winners = sorted([p for p, mv in moves_copy.items() if mv == win_move])
-        winner = winners[0] if winners else None
-        loser = next((p for p in players_order if p not in winners), None)
-        return winner, loser, "normal"
+        losers = sorted([p for p in players_order if p not in winners])
+        return winners, losers, "normal"
 
-    def finish_game(self, winner: Optional[str], loser: Optional[str], reason: str = "normal"):
+    def finish_game(self, winners: list[str] | None, losers: list[str] | None, reason: str = "normal"):
         if not self.running:
             return
         self.running = False
+        winners = winners or []
+        losers = losers or []
+        # Maintain single-winner fields for compatibility but include lists for multi-winner rounds.
+        winner = winners[0] if winners else None
+        loser = losers[0] if losers else None
         for conn in list(self.connections.values()):
-            send_json(conn, {"type": "game_over", "winner": winner, "loser": loser, "reason": reason})
-        print(f"[server] game over winner={winner} loser={loser} reason={reason}")
+            send_json(conn, {"type": "game_over", "winner": winner, "loser": loser, "winners": winners, "losers": losers, "reason": reason})
+        print(f"[server] game over winners={winners} losers={losers} reason={reason}")
         results = []
-        if winner:
-            results.append({"player": winner, "outcome": "WIN", "rank": 1, "score": None})
-        if loser:
-            results.append({"player": loser, "outcome": "LOSE", "rank": 2, "score": None})
+        for p in winners:
+            results.append({"player": p, "outcome": "WIN", "rank": 1, "score": None})
+        for idx, p in enumerate(losers, start=1):
+            results.append({"player": p, "outcome": "LOSE", "rank": len(winners) + idx, "score": None})
         if not results:
             for pname in self.players:
                 results.append({"player": pname, "outcome": "DRAW", "rank": None, "score": None})
-        self._report_status("END", winner=winner, loser=loser, reason=reason, results=results)
+        self._report_status("END", winner=winner, loser=loser, reason=reason, results=results, winners=winners, losers=losers)
         try:
             if self.listener:
                 self.listener.close()
@@ -308,6 +314,8 @@ class RPSServer:
         status: str,
         winner: Optional[str] = None,
         loser: Optional[str] = None,
+        winners: Optional[list[str]] = None,
+        losers: Optional[list[str]] = None,
         err_msg: Optional[str] = None,
         reason: Optional[str] = None,
         results: Optional[list] = None,
@@ -329,6 +337,10 @@ class RPSServer:
             payload["winner"] = winner
         if loser:
             payload["loser"] = loser
+        if winners:
+            payload["winners"] = winners
+        if losers:
+            payload["losers"] = losers
         if err_msg:
             payload["err_msg"] = err_msg
         if reason:

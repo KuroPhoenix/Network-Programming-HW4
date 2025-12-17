@@ -228,6 +228,11 @@ class ConnectFourServer:
             self._handle_disconnect(player, reason=str(exc))
 
     def _handle_move(self, player: str, col: int):
+        conn = None
+        error_msg = None
+        end_winner = None
+        end_reason = None
+        broadcast = False
         with self.lock:
             if not self.running or self.winner:
                 return
@@ -236,58 +241,76 @@ class ConnectFourServer:
                 return
             current_player = self.expected_players[(self.board.turn - 1)]
             if player != current_player:
-                send_json(conn, {"type": "error", "message": "not your turn"})
-                return
-            mark = 1 if player == self.expected_players[0] else 2
-            result = self.board.drop(col, mark)
-            if not result.valid:
-                send_json(conn, {"type": "error", "message": "invalid move"})
-                return
-            if result.winner is not None:
-                self._end_game(winner=player, reason="connect_four")
-            elif result.draw:
-                self._end_game(winner=None, reason="draw")
+                error_msg = "not your turn"
             else:
-                self._broadcast_state()
+                mark = 1 if player == self.expected_players[0] else 2
+                result = self.board.drop(col, mark)
+                if not result.valid:
+                    error_msg = "invalid move"
+                elif result.winner is not None:
+                    end_winner = player
+                    end_reason = "connect_four"
+                elif result.draw:
+                    end_reason = "draw"
+                else:
+                    broadcast = True
+        if error_msg:
+            send_json(conn, {"type": "error", "message": error_msg})
+            return
+        if end_reason is not None:
+            self._end_game(winner=end_winner, reason=end_reason)
+            return
+        if broadcast:
+            self._broadcast_state()
 
     def _handle_disconnect(self, player: str, reason: str):
+        winner = None
         with self.lock:
-            if player in self.connections:
+            conn = self.connections.pop(player, None)
+            if conn:
                 try:
-                    self.connections[player].close()
+                    conn.close()
                 except Exception:
                     pass
-                self.connections.pop(player, None)
             if self.running and not self.winner:
-                self._end_game(winner=self._opponent(player), reason=reason)
+                winner = self._opponent(player)
+        if winner is not None:
+            self._end_game(winner=winner, reason=reason)
 
     def _broadcast_state(self):
-        state = {
-            "type": "state",
-            "room": self.room,
-            "board": self.board.to_state(),
-            "players": self.expected_players,
-            "turn_player": self.expected_players[(self.board.turn - 1)],
-            "winner": None,
-            "reason": None,
-        }
-        for p, conn in list(self.connections.items()):
+        with self.lock:
+            state = {
+                "type": "state",
+                "room": self.room,
+                "board": self.board.to_state(),
+                "players": self.expected_players,
+                "turn_player": self.expected_players[(self.board.turn - 1)],
+                "winner": None,
+                "reason": None,
+            }
+            items = list(self.connections.items())
+        failed = []
+        for p, conn in items:
             if not send_json(conn, state):
-                self._handle_disconnect(p, reason="send_failed")
+                failed.append(p)
+        for p in failed:
+            self._handle_disconnect(p, reason="send_failed")
 
     def _end_game(self, winner: Optional[str], reason: str):
-        if not self.running:
-            return
-        self.running = False
-        self.winner = winner
-        self.reason = reason
+        with self.lock:
+            if not self.running:
+                return
+            self.running = False
+            self.winner = winner
+            self.reason = reason
+            items = list(self.connections.items())
         payload = {
             "type": "game_over",
             "winner": winner,
             "reason": reason,
             "board": self.board.to_state(),
         }
-        for p, conn in list(self.connections.items()):
+        for p, conn in items:
             send_json(conn, payload)
         status = "END" if winner or reason == "draw" else "ERROR"
         results = []
