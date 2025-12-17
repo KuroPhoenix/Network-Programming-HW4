@@ -23,7 +23,7 @@ def _configure_logging(log_name: str) -> None:
     log_dir = root / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
-        level=logging.WARNING,
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[logging.FileHandler(log_dir / log_name, encoding="utf-8"), logging.StreamHandler()],
         force=True,
@@ -34,6 +34,15 @@ _configure_logging("game_wordle_server.log")
 logger = logging.getLogger(__name__)
 
 MAX_LINE_BYTES = 64 * 1024
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
 
 
 def send_json(conn: socket.socket, obj: Dict):
@@ -209,9 +218,13 @@ class WordleServer:
         self.winner: Optional[str] = None
         self.listener: Optional[socket.socket] = None
         self.lock = threading.Lock()
+        self.handshake_timeout_sec = _env_float("WORDLE_HANDSHAKE_TIMEOUT_SEC", 10.0)
+        self.wait_for_players_sec = _env_float("WORDLE_WAIT_FOR_PLAYERS_SEC", 60.0)
+        self.game_timeout_sec = _env_float("WORDLE_GAME_TIMEOUT_SEC", 300.0)
+        self.started_at: Optional[float] = None
 
     def _rules_payload(self) -> dict:
-        return {
+        payload = {
             "type": "rules",
             "target_length": len(self.target_word),
             "max_attempts": self.max_attempts,
@@ -221,6 +234,10 @@ class WordleServer:
                 f"You have {self.max_attempts} attempts; first to solve wins. If time runs out, best board wins."
             ),
         }
+        if self.game_timeout_sec > 0:
+            payload["time_limit_sec"] = int(self.game_timeout_sec)
+            payload["text"] += f" Time limit: {int(self.game_timeout_sec)} seconds."
+        return payload
 
     def broadcast_rules(self):
         payload = self._rules_payload()
@@ -237,19 +254,30 @@ class WordleServer:
         self._report_status("STARTED")
 
         try:
+            wait_deadline = None
+            if self.wait_for_players_sec > 0:
+                wait_deadline = time.time() + self.wait_for_players_sec
+            threading.Thread(target=self._heartbeat, daemon=True).start()
             listener.settimeout(1.0)
-            while len(self.connections) < 2:
+            while self.running and len(self.connections) < 2:
+                if wait_deadline and time.time() >= wait_deadline:
+                    self.finish_game(winner=None, loser=None, reason="player_timeout")
+                    break
                 try:
                     conn, addr = listener.accept()
                 except socket.timeout:
                     continue
                 self.handle_handshake(conn, addr, allow_players=True)
 
+            if not self.running or len(self.connections) < 2:
+                return
+
             # Start watcher threads
             for pname in self.players_order:
                 threading.Thread(target=self.player_thread, args=(pname,), daemon=True).start()
             threading.Thread(target=self.accept_spectators, args=(listener,), daemon=True).start()
-            threading.Thread(target=self._heartbeat, daemon=True).start()
+            self.started_at = time.time()
+            threading.Thread(target=self._watchdog, daemon=True).start()
 
             # Share rules once the game begins.
             self.broadcast_rules()
@@ -272,6 +300,10 @@ class WordleServer:
                 pass
 
     def handle_handshake(self, conn: socket.socket, addr, allow_players: bool):
+        try:
+            conn.settimeout(self.handshake_timeout_sec)
+        except Exception:
+            pass
         reader = conn.makefile("r", encoding="utf-8", newline="\n")
         hello = recv_json(reader)
         if not hello:
@@ -311,6 +343,10 @@ class WordleServer:
             send_json(conn, {"ok": True, "game_protocol_version": 1})
             self.send_spectator_state(conn)
             print(f"[server] spectator {sid} connected from {addr}")
+            try:
+                conn.settimeout(None)
+            except Exception:
+                pass
             self._spectator_loop(conn, reader, sid)
             return
         if not allow_players:
@@ -325,7 +361,11 @@ class WordleServer:
             return
         self.connections[pname] = conn
         send_json(conn, {"ok": True, "assigned_player_index": self.players_order.index(pname), "game_protocol_version": 1})
-        print(f"[server] player {pname} connected from {addr}")
+        logger.info("player %s connected from %s", pname, addr)
+        try:
+            conn.settimeout(None)
+        except Exception:
+            pass
         reader.close()
 
     def accept_spectators(self, listener: socket.socket):
@@ -383,9 +423,11 @@ class WordleServer:
     def handle_guess(self, pname: str, word: str):
         # Accept any alphabetic word with the correct length to keep play smooth across dictionaries.
         if not word.isalpha() or len(word) != len(self.target_word):
+            logger.info("invalid guess from %s (%s); not sent", pname, word)
             send_json(self.connections[pname], {"type": "error", "message": f"word must be {len(self.target_word)} letters"})
             state_payload = self._player_state_payload(pname)
             send_json(self.connections[pname], state_payload)
+            self._maybe_finish_on_attempts()
             return
         with self.lock:
             state = self.states[pname]
@@ -408,6 +450,7 @@ class WordleServer:
             return
         winner = self.progress_winner()
         loser = self.other_player(winner) if winner else None
+        logger.info("all attempts exhausted winner=%s loser=%s", winner, loser)
         self.finish_game(winner=winner, loser=loser, reason="attempts_exhausted")
 
     def evaluate(self, guess: str) -> List[str]:
@@ -544,7 +587,7 @@ class WordleServer:
             send_json(conn, {"type": "game_over", "winner": winner, "loser": loser, "reason": reason})
         for conn in list(self.spectators.values()):
             send_json(conn, {"type": "game_over", "winner": winner, "loser": loser, "reason": reason})
-        print(f"[server] game over winner={winner} loser={loser} reason={reason}")
+        logger.info("game over winner=%s loser=%s reason=%s", winner, loser, reason)
         results = []
         if winner:
             results.append({"player": winner, "outcome": "WIN", "rank": 1, "score": None})
@@ -603,6 +646,16 @@ class WordleServer:
         while self.running:
             self._report_status("HEARTBEAT", reason="heartbeat")
             time.sleep(10)
+
+    def _watchdog(self):
+        while self.running:
+            if self.started_at and self.game_timeout_sec > 0:
+                if time.time() - self.started_at >= self.game_timeout_sec:
+                    winner = self.progress_winner()
+                    loser = self.other_player(winner) if winner else None
+                    self.finish_game(winner=winner, loser=loser, reason="timeout")
+                    return
+            time.sleep(0.5)
 
     def other_player(self, pname: str) -> Optional[str]:
         for p in self.players_order:

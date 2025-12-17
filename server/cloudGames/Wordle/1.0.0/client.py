@@ -6,7 +6,7 @@ import time
 import os
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, IO
 
 def _configure_logging(log_name: str) -> None:
     root = None
@@ -29,6 +29,8 @@ def _configure_logging(log_name: str) -> None:
 
 _configure_logging("game_wordle_client.log")
 logger = logging.getLogger(__name__)
+
+MAX_LINE_BYTES = 64 * 1024
 
 
 def _read_secret(env_name: str, path_env_name: str) -> str:
@@ -53,21 +55,19 @@ def send_json(conn: socket.socket, obj: dict) -> bool:
         return False
 
 
-def recv_json(conn: socket.socket) -> Optional[dict]:
-    buf = b""
+def recv_json(reader: IO[str]) -> Optional[dict]:
     try:
-        while True:
-            chunk = conn.recv(1)
-            if not chunk:
-                return None
-            if chunk == b"\n":
-                break
-            buf += chunk
+        line = reader.readline(MAX_LINE_BYTES)
     except Exception as exc:
         logger.warning("recv_json failed: %s", exc)
         return None
+    if not line:
+        return None
+    if len(line) >= MAX_LINE_BYTES:
+        logger.warning("received line exceeds max (%d bytes); discarding", MAX_LINE_BYTES)
+        return None
     try:
-        return json.loads(buf.decode("utf-8"))
+        return json.loads(line)
     except Exception as exc:
         logger.warning("recv_json parse failed: %s", exc)
         return None
@@ -153,19 +153,28 @@ def main():
         "client_protocol_version": args.client_protocol_version,
         "role": role,
     }
+    reader = conn.makefile("r", encoding="utf-8", newline="\n")
     if not send_json(conn, hello):
         print("Failed to send handshake.")
+        try:
+            reader.close()
+        except Exception:
+            pass
         return
-    resp = recv_json(conn)
+    resp = recv_json(reader)
     if not resp or not resp.get("ok"):
         print(f"Handshake rejected: {resp.get('reason') if resp else 'no response'}")
+        try:
+            reader.close()
+        except Exception:
+            pass
         return
     print(f"Connected as {role}. Waiting for updates...")
 
     printed_rules = False
     try:
         while True:
-            msg = recv_json(conn)
+            msg = recv_json(reader)
             if not msg:
                 print("Disconnected from server.")
                 return
@@ -187,15 +196,25 @@ def main():
                     printed_rules = True
                 print_player_state(msg)
                 if not args.spectator and not msg.get("solved") and msg.get("attempts_left", 0) > 0:
-                    play = prompt_guess(msg.get("target_length", 5))
-                    try:
-                        send_json(conn, play)
-                    except (BrokenPipeError, ConnectionResetError):
-                        print("Connection closed while sending your move. Exiting.")
-                        return
-                    except Exception as e:
-                        print(f"Failed to send move: {e}")
-                        return
+                    target_len = msg.get("target_length", 5)
+                    while True:
+                        play = prompt_guess(target_len)
+                        if play.get("type") != "guess":
+                            break
+                        guess = str(play.get("word", "")).strip()
+                        if not guess.isalpha() or len(guess) != target_len:
+                            print(f"Error: word must be {target_len} letters")
+                            continue
+                        break
+                    if play.get("type") == "guess":
+                        try:
+                            send_json(conn, play)
+                        except (BrokenPipeError, ConnectionResetError):
+                            print("Connection closed while sending your move. Exiting.")
+                            return
+                        except Exception as e:
+                            print(f"Failed to send move: {e}")
+                            return
             elif mtype == "error":
                 print(f"Error: {msg.get('message')}")
             elif mtype == "game_over":
@@ -217,6 +236,10 @@ def main():
                 pass
         print("\nExiting game...")
     finally:
+        try:
+            reader.close()
+        except Exception:
+            pass
         try:
             conn.shutdown(socket.SHUT_RDWR)
         except Exception:
