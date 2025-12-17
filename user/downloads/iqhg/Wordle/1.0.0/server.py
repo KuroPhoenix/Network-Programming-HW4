@@ -384,6 +384,8 @@ class WordleServer:
         # Accept any alphabetic word with the correct length to keep play smooth across dictionaries.
         if not word.isalpha() or len(word) != len(self.target_word):
             send_json(self.connections[pname], {"type": "error", "message": f"word must be {len(self.target_word)} letters"})
+            state_payload = self._player_state_payload(pname)
+            send_json(self.connections[pname], state_payload)
             return
         with self.lock:
             state = self.states[pname]
@@ -493,6 +495,25 @@ class WordleServer:
             }
             for conn in list(self.spectators.values()):
                 send_json(conn, payload)
+
+    def _player_state_payload(self, pname: str) -> dict:
+        opp = self.other_player(pname)
+        return {
+            "type": "state",
+            "you": pname,
+            "room": self.room,
+            "target_length": len(self.target_word),
+            "max_attempts": self.max_attempts,
+            "guesses": self.states[pname].guesses,
+            "attempts_left": max(0, self.max_attempts - len(self.states[pname].guesses)),
+            "solved": self.states[pname].solved,
+            "opponent": {
+                "name": opp,
+                "guesses": len(self.states[opp].guesses),
+                "solved": self.states[opp].solved,
+                "attempts_left": max(0, self.max_attempts - len(self.states[opp].guesses)),
+            },
+        }
 
     def send_spectator_state(self, conn: socket.socket):
         send_json(
