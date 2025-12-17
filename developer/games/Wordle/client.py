@@ -200,6 +200,14 @@ def main():
                     while True:
                         play = prompt_guess(target_len)
                         if play.get("type") != "guess":
+                            try:
+                                send_json(conn, play)
+                            except (BrokenPipeError, ConnectionResetError):
+                                print("Connection closed while sending your move. Exiting.")
+                                return
+                            except Exception as e:
+                                print(f"Failed to send move: {e}")
+                                return
                             break
                         guess = str(play.get("word", "")).strip()
                         if not guess.isalpha() or len(guess) != target_len:

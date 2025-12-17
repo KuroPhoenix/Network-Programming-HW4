@@ -5,12 +5,46 @@ from loguru import logger
 from server.core.protocol import Message, message_to_dict, message_from_dict
 
 
-def connect_to_server(host: str, port: int, timeout: float = 5.0) -> Tuple[socket.socket, any]:
+MAX_LINE_BYTES = 64 * 1024
+
+
+class SocketLineReader:
+    def __init__(self, sock: socket.socket, encoding: str = "utf-8"):
+        self.sock = sock
+        self.encoding = encoding
+        self._buffer = bytearray()
+
+    def readline(self, size: int | None = None) -> str:
+        limit = size if size and size > 0 else MAX_LINE_BYTES
+        while True:
+            nl_index = self._buffer.find(b"\n")
+            if nl_index != -1:
+                line = self._buffer[: nl_index + 1]
+                del self._buffer[: nl_index + 1]
+                return line.decode(self.encoding)
+            if limit and len(self._buffer) >= limit:
+                line = bytes(self._buffer)
+                self._buffer.clear()
+                return line.decode(self.encoding)
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                if not self._buffer:
+                    return ""
+                line = bytes(self._buffer)
+                self._buffer.clear()
+                return line.decode(self.encoding)
+            self._buffer.extend(chunk)
+
+    def close(self) -> None:
+        self._buffer.clear()
+
+
+def connect_to_server(host: str, port: int, timeout: float = 5.0) -> Tuple[socket.socket, SocketLineReader]:
     logger.info(f"connecting to {host}:{port}")
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
         sock.settimeout(timeout)
-        return sock, sock.makefile("r")
+        return sock, SocketLineReader(sock)
     except Exception as exc:
         logger.exception(f"failed to connect to {host}:{port}: {exc}")
         raise RuntimeError(f"failed to connect to {host}:{port}: {exc}") from exc
@@ -27,7 +61,7 @@ def send_message(sock: socket.socket, msg_dict: dict[str, Any]) -> None:
 
 def recv_message(file_obj) -> dict[str, Any]:
     """Receive a single Message (as dict) from a file-like object."""
-    line = file_obj.readline()
+    line = file_obj.readline(MAX_LINE_BYTES)
     if not line:
         logger.error("Server closed connection unexpectedly")
         raise ConnectionError("Server closed connection")
@@ -77,6 +111,5 @@ def send_request(
     except Exception as exc:
         logger.exception(f"Failed to decode response for {mtype}: {exc}")
         return Message(type=mtype or "", status="error", code=199, message=str(exc))
-
 
 
