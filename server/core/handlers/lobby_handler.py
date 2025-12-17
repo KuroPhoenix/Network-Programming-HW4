@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 from loguru import logger
 
 from server.core.room_genie import RoomGenie
