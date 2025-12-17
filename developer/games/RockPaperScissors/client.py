@@ -4,6 +4,7 @@ import socket
 import sys
 import os
 import logging
+import select
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -91,11 +92,9 @@ def print_state(state: Dict):
     print(f"Opponent {opp}: submitted={bool(opp_sub)}")
 
 
-def prompt_move() -> dict:
-    raw = input("Enter your move (rock/paper/scissors) or 'surrender': ").strip().lower()
-    if raw == "surrender":
-        return {"type": "surrender"}
-    return {"type": "move", "move": raw}
+def print_prompt() -> None:
+    sys.stdout.write("Enter your move (rock/paper/scissors) or 'surrender': ")
+    sys.stdout.flush()
 
 
 def main():
@@ -139,38 +138,57 @@ def main():
     print("Connected. Waiting for updates...")
 
     have_printed_rules = False
+    can_play = False
     try:
         while True:
-            msg = recv_json(conn)
-            if not msg:
-                print("Disconnected from server.")
-                return
-            mtype = msg.get("type")
-            if mtype == "rules":
-                print_rules(msg.get("text"))
-                have_printed_rules = True
-            elif mtype == "state":
-                print_state(msg)
-                if not args.spectator and msg.get("your_move") is None:
-                    move = prompt_move()
-                    try:
-                        send_json(conn, move)
-                    except Exception as e:
-                        print(f"Failed to send move: {e}")
-                        return
-            elif mtype == "error":
-                print(f"Error: {msg.get('message')}")
-            elif mtype == "game_over":
-                winner = msg.get("winner")
-                reason = msg.get("reason")
-                if winner:
-                    print(f"Game over. Winner: {winner} (reason: {reason})")
+            watch = [conn]
+            if can_play and not args.spectator:
+                watch.append(sys.stdin)
+            readable, _, _ = select.select(watch, [], [])
+            if conn in readable:
+                msg = recv_json(conn)
+                if not msg:
+                    print("Disconnected from server.")
+                    return
+                mtype = msg.get("type")
+                if mtype == "rules":
+                    print_rules(msg.get("text"))
+                    have_printed_rules = True
+                elif mtype == "state":
+                    print_state(msg)
+                    if not args.spectator and msg.get("your_move") is None:
+                        can_play = True
+                        print_prompt()
+                    else:
+                        can_play = False
+                elif mtype == "error":
+                    print(f"Error: {msg.get('message')}")
+                elif mtype == "game_over":
+                    winner = msg.get("winner")
+                    reason = msg.get("reason")
+                    if winner:
+                        print(f"Game over. Winner: {winner} (reason: {reason})")
+                    else:
+                        print(f"Game over. Reason: {reason}")
+                    return
+            if sys.stdin in readable:
+                raw = sys.stdin.readline()
+                if not raw:
+                    continue
+                raw = raw.strip().lower()
+                if raw == "surrender":
+                    move = {"type": "surrender"}
                 else:
-                    print(f"Game over. Reason: {reason}")
-                return
-            else:
-                # ignore unknown
-                pass
+                    if raw not in CHOICES:
+                        print("Error: move must be rock, paper, or scissors")
+                        if can_play:
+                            print_prompt()
+                        continue
+                    move = {"type": "move", "move": raw}
+                if not send_json(conn, move):
+                    print("Failed to send move.")
+                    return
+                can_play = False
     except KeyboardInterrupt:
         try:
             send_json(conn, {"type": "surrender"})
