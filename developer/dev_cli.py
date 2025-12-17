@@ -62,7 +62,6 @@ def main():
                         ]
                         page_start = 0
                         page_size = 4
-                        aborted = False
                         while True:
                             page_slice = local_entries[page_start : page_start + page_size]
                             if not page_slice:
@@ -75,7 +74,6 @@ def main():
                                 has_next=page_start + page_size < len(local_entries),
                             )
                             if action_sel == -1:
-                                aborted = True
                                 break
                             if isinstance(action_sel, tuple) and action_sel[0] == "select":
                                 selected = page_slice[action_sel[1]]
@@ -110,10 +108,7 @@ def main():
                             elif action_sel == "prev":
                                 page_start = max(0, page_start - page_size)
                             elif action_sel == "back":
-                                aborted = True
                                 break
-                        if aborted:
-                            continue
                         resp = client.listGame(username)
                         if resp.status == "ok":
                             print("=== Server Game Manifests ===")

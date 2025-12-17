@@ -5,6 +5,7 @@ import sys
 import time
 import os
 import logging
+import select
 from pathlib import Path
 from typing import Optional, List, Dict, IO
 
@@ -96,12 +97,10 @@ def print_player_state(state: Dict):
         print("You solved it! Waiting for result...")
 
 
-def prompt_guess(target_len: int) -> dict:
+def print_prompt(target_len: int) -> None:
     print(f"Enter a {target_len}-letter word (or type 'surrender' to give up):")
-    raw = input("> ").strip()
-    if raw.lower() == "surrender":
-        return {"type": "surrender"}
-    return {"type": "guess", "word": raw}
+    sys.stdout.write("> ")
+    sys.stdout.flush()
 
 
 def print_rules(target_len: int, max_attempts: int):
@@ -172,70 +171,76 @@ def main():
     print(f"Connected as {role}. Waiting for updates...")
 
     printed_rules = False
+    can_play = False
+    target_len = 5
     try:
         while True:
-            msg = recv_json(reader)
-            if not msg:
-                print("Disconnected from server.")
-                return
-            mtype = msg.get("type")
-            if mtype == "rules":
-                # Server-sent rules message
-                txt = msg.get("text") or ""
-                print_rules(target_len=msg.get("target_length", 5), max_attempts=msg.get("max_attempts", 6))
-                if txt:
-                    print(txt)
-            elif mtype == "state":
-                if role == "spectator" and "players" in msg:
-                    print("\n=== Spectator View ===")
-                    for pname, info in (msg.get("players") or {}).items():
-                        print(f"{pname}: guesses={info.get('guesses')} solved={info.get('solved')} attempts_left={info.get('attempts_left')}")
-                    continue
-                if not printed_rules:
+            watch = [conn]
+            if can_play and not args.spectator:
+                watch.append(sys.stdin)
+            readable, _, _ = select.select(watch, [], [])
+            if conn in readable:
+                msg = recv_json(reader)
+                if not msg:
+                    print("Disconnected from server.")
+                    return
+                mtype = msg.get("type")
+                if mtype == "rules":
+                    txt = msg.get("text") or ""
                     print_rules(target_len=msg.get("target_length", 5), max_attempts=msg.get("max_attempts", 6))
-                    printed_rules = True
-                print_player_state(msg)
-                if not args.spectator and not msg.get("solved") and msg.get("attempts_left", 0) > 0:
-                    target_len = msg.get("target_length", 5)
-                    while True:
-                        play = prompt_guess(target_len)
-                        if play.get("type") != "guess":
-                            try:
-                                send_json(conn, play)
-                            except (BrokenPipeError, ConnectionResetError):
-                                print("Connection closed while sending your move. Exiting.")
-                                return
-                            except Exception as e:
-                                print(f"Failed to send move: {e}")
-                                return
-                            break
-                        guess = str(play.get("word", "")).strip()
-                        if not guess.isalpha() or len(guess) != target_len:
-                            print(f"Error: word must be {target_len} letters")
-                            continue
-                        break
-                    if play.get("type") == "guess":
-                        try:
-                            send_json(conn, play)
-                        except (BrokenPipeError, ConnectionResetError):
-                            print("Connection closed while sending your move. Exiting.")
-                            return
-                        except Exception as e:
-                            print(f"Failed to send move: {e}")
-                            return
-            elif mtype == "error":
-                print(f"Error: {msg.get('message')}")
-            elif mtype == "game_over":
-                winner = msg.get("winner")
-                reason = msg.get("reason")
-                if winner:
-                    print(f"Game over. Winner: {winner} (reason: {reason})")
+                    if txt:
+                        print(txt)
+                elif mtype == "state":
+                    if role == "spectator" and "players" in msg:
+                        print("\n=== Spectator View ===")
+                        for pname, info in (msg.get("players") or {}).items():
+                            print(
+                                f"{pname}: guesses={info.get('guesses')} solved={info.get('solved')} attempts_left={info.get('attempts_left')}"
+                            )
+                        continue
+                    if not printed_rules:
+                        print_rules(target_len=msg.get("target_length", 5), max_attempts=msg.get("max_attempts", 6))
+                        printed_rules = True
+                    print_player_state(msg)
+                    if not args.spectator and not msg.get("solved") and msg.get("attempts_left", 0) > 0:
+                        target_len = msg.get("target_length", 5)
+                        can_play = True
+                        print_prompt(target_len)
+                    else:
+                        can_play = False
+                elif mtype == "error":
+                    print(f"Error: {msg.get('message')}")
+                elif mtype == "game_over":
+                    winner = msg.get("winner")
+                    reason = msg.get("reason")
+                    if winner:
+                        print(f"Game over. Winner: {winner} (reason: {reason})")
+                    else:
+                        print(f"Game over. Reason: {reason}")
+                    return
+            if sys.stdin in readable:
+                raw = sys.stdin.readline()
+                if not raw:
+                    continue
+                raw = raw.strip()
+                if raw.lower() == "surrender":
+                    play = {"type": "surrender"}
                 else:
-                    print(f"Game over. Reason: {reason}")
-                return
-            else:
-                # ignore unknown
-                pass
+                    if not raw.isalpha() or len(raw) != target_len:
+                        print(f"Error: word must be {target_len} letters")
+                        if can_play:
+                            print_prompt(target_len)
+                        continue
+                    play = {"type": "guess", "word": raw}
+                try:
+                    send_json(conn, play)
+                except (BrokenPipeError, ConnectionResetError):
+                    print("Connection closed while sending your move. Exiting.")
+                    return
+                except Exception as e:
+                    print(f"Failed to send move: {e}")
+                    return
+                can_play = False
     except KeyboardInterrupt:
         if not args.spectator:
             try:
