@@ -107,6 +107,7 @@ def main():
     parser.add_argument("--match_id", default=os.getenv("MATCH_ID", ""))
     parser.add_argument("--client_token", default=os.getenv("CLIENT_TOKEN", ""))
     parser.add_argument("--client_protocol_version", type=int, default=int(os.getenv("CLIENT_PROTOCOL_VERSION", "1") or 1))
+    parser.add_argument("--spectator", action="store_true", help="connect without submitting a move")
     args = parser.parse_args()
     client_token = args.client_token or _read_secret("CLIENT_TOKEN", "CLIENT_TOKEN_PATH")
     match_id = args.match_id or os.getenv("MATCH_ID", "")
