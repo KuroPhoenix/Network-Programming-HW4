@@ -87,14 +87,23 @@ def print_player_state(state: Dict):
     target_len = state.get("target_length", 5)
     max_attempts = state.get("max_attempts", 6)
     for g in guesses:
-        print(format_guess_row(g.get("word", ""), g.get("result", [])))
+        row = format_guess_row(g.get("word", ""), g.get("result", []))
+        player = g.get("player")
+        if player:
+            row = f"{player}: {row}"
+        print(row)
     for _ in range(max_attempts - len(guesses)):
         print("_" * target_len)
     print(f"Attempts left: {state.get('attempts_left')}")
-    opp = state.get("opponent") or {}
-    print(f"Opponent {opp.get('name')}: guesses={opp.get('guesses')} solved={opp.get('solved')}")
-    if state.get("solved"):
-        print("You solved it! Waiting for result...")
+    current = state.get("current_player")
+    if current:
+        if "your_turn" in state:
+            if state.get("your_turn"):
+                print("Your turn.")
+            else:
+                print(f"Waiting for {current} to guess...")
+        else:
+            print(f"Current player: {current}")
 
 
 def print_prompt(target_len: int) -> None:
@@ -107,9 +116,9 @@ def print_rules(target_len: int, max_attempts: int):
     print(
         f"""
 === How to Play ===
-- You and your opponent solve the same {target_len}-letter word.
+- You and your opponent take turns guessing the same {target_len}-letter word.
 - Each guess returns: G = correct letter/place, Y = letter in word wrong place, . = absent.
-- You have {max_attempts} attempts. First to solve wins; if time runs out, best board wins.
+- You have {max_attempts} total attempts. The first correct guess wins.
 - Type 'surrender' to forfeit.
 """
     )
@@ -187,23 +196,23 @@ def main():
                 mtype = msg.get("type")
                 if mtype == "rules":
                     txt = msg.get("text") or ""
-                    print_rules(target_len=msg.get("target_length", 5), max_attempts=msg.get("max_attempts", 6))
+                    target_len = msg.get("target_length", target_len)
+                    print_rules(target_len=target_len, max_attempts=msg.get("max_attempts", 6))
+                    printed_rules = True
                     if txt:
                         print(txt)
                 elif mtype == "state":
-                    if role == "spectator" and "players" in msg:
-                        print("\n=== Spectator View ===")
-                        for pname, info in (msg.get("players") or {}).items():
-                            print(
-                                f"{pname}: guesses={info.get('guesses')} solved={info.get('solved')} attempts_left={info.get('attempts_left')}"
-                            )
-                        continue
                     if not printed_rules:
                         print_rules(target_len=msg.get("target_length", 5), max_attempts=msg.get("max_attempts", 6))
                         printed_rules = True
                     print_player_state(msg)
-                    if not args.spectator and not msg.get("solved") and msg.get("attempts_left", 0) > 0:
-                        target_len = msg.get("target_length", 5)
+                    target_len = msg.get("target_length", target_len)
+                    if (
+                        not args.spectator
+                        and msg.get("your_turn")
+                        and not msg.get("solved")
+                        and msg.get("attempts_left", 0) > 0
+                    ):
                         can_play = True
                         print_prompt(target_len)
                     else:

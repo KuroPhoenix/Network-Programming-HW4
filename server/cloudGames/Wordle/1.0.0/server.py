@@ -7,8 +7,9 @@ import threading
 import time
 import os
 import logging
+from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 def _configure_logging(log_name: str) -> None:
     root = None
@@ -180,13 +181,6 @@ TARGET_WORDS = list(_ALL_WORDS)
 ALLOWED_GUESSES = set(_ALL_WORDS)
 
 
-class PlayerState:
-    def __init__(self, name: str):
-        self.name = name
-        self.guesses: List[Dict] = []  # list of {"word": str, "result": [status]}
-        self.solved: bool = False
-
-
 class WordleServer:
     def __init__(
         self,
@@ -210,7 +204,9 @@ class WordleServer:
         self.match_id = match_id
         self.bind_host = bind_host
         self.players_order = [p1, p2]
-        self.states: Dict[str, PlayerState] = {p1: PlayerState(p1), p2: PlayerState(p2)}
+        self.guesses: List[Dict] = []
+        self.current_turn_idx = 0
+        self.solved = False
         self.connections: Dict[str, socket.socket] = {}
         self.spectators: Dict[str, socket.socket] = {}
         self.report_host = report_host
@@ -233,9 +229,10 @@ class WordleServer:
             "target_length": len(self.target_word),
             "max_attempts": self.max_attempts,
             "text": (
-                f"Solve the shared {len(self.target_word)}-letter word. "
+                f"Take turns guessing the shared {len(self.target_word)}-letter word. "
                 f"Each guess returns: G = correct letter/place, Y = letter in word wrong place, . = absent. "
-                f"You have {self.max_attempts} attempts; first to solve wins. If time runs out, best board wins."
+                f"Only the current player may guess while the other waits. "
+                f"You have {self.max_attempts} total attempts; the first correct guess wins."
             ),
         }
         if self.game_timeout_sec > 0:
@@ -399,30 +396,43 @@ class WordleServer:
             send_json(self.connections[pname], {"type": "error", "message": f"word must be {len(self.target_word)} letters"})
             state_payload = self._player_state_payload(pname)
             send_json(self.connections[pname], state_payload)
-            self._maybe_finish_on_attempts()
             return
+        winner = None
+        loser = None
+        reason = None
+        broadcast = False
         with self.lock:
-            state = self.states[pname]
-            if state.solved or len(state.guesses) >= self.max_attempts or not self.running:
+            if not self.running or self.solved:
+                return
+            current_player = self.players_order[self.current_turn_idx]
+            if pname != current_player:
+                send_json(self.connections[pname], {"type": "error", "message": "not your turn"})
+                state_payload = self._player_state_payload(pname)
+                send_json(self.connections[pname], state_payload)
+                return
+            if len(self.guesses) >= self.max_attempts:
+                send_json(self.connections[pname], {"type": "error", "message": "no attempts left"})
                 return
             result = self.evaluate(word)
-            state.guesses.append({"word": word, "result": result})
+            self.guesses.append({"word": word, "result": result, "player": pname})
             if word == self.target_word:
-                state.solved = True
-                self.finish_game(winner=pname, loser=self.other_player(pname), reason="solved")
+                self.solved = True
+                winner = pname
+                loser = self.other_player(pname)
+                reason = "solved"
+            elif len(self.guesses) >= self.max_attempts:
+                reason = "attempts_exhausted"
             else:
-                self.broadcast_state()
-                self._maybe_finish_on_attempts()
-
-    def _maybe_finish_on_attempts(self):
-        if self.winner or not self.running:
+                self.current_turn_idx = 1 - self.current_turn_idx
+                broadcast = True
+        if reason == "attempts_exhausted":
+            self.finish_game(winner=None, loser=None, reason=reason)
             return
-        all_spent = all(len(s.guesses) >= self.max_attempts or s.solved for s in self.states.values())
-        if not all_spent:
+        if winner:
+            self.finish_game(winner=winner, loser=loser, reason=reason or "solved")
             return
-        winner = self.progress_winner()
-        loser = self.other_player(winner) if winner else None
-        self.finish_game(winner=winner, loser=loser, reason="attempts_exhausted")
+        if broadcast:
+            self.broadcast_state()
 
     def evaluate(self, guess: str) -> List[str]:
         target = list(self.target_word)
@@ -441,36 +451,17 @@ class WordleServer:
                 target[target.index(ch)] = None
         return result
 
-    def progress_winner(self) -> Optional[str]:
-        def score(ps: PlayerState) -> Tuple[int, int, int]:
-            best_green = 0
-            best_yellow = 0
-            for g in ps.guesses:
-                greens = g["result"].count("correct")
-                yellows = g["result"].count("present")
-                if greens > best_green or (greens == best_green and yellows > best_yellow):
-                    best_green, best_yellow = greens, yellows
-            attempts_used = len(ps.guesses)
-            return (best_green, best_yellow, -attempts_used)
-
-        p1, p2 = self.players_order
-        s1, s2 = self.states[p1], self.states[p2]
-        if s1.solved and not s2.solved:
-            return p1
-        if s2.solved and not s1.solved:
-            return p2
-        if s1.solved and s2.solved:
-            # Both solved after exhausting attempts; earlier solver wins by guess count.
-            if len(s1.guesses) == len(s2.guesses):
-                return p1
-            return p1 if len(s1.guesses) < len(s2.guesses) else p2
-        score1 = score(s1)
-        score2 = score(s2)
-        if score1 == score2:
-            return p1  # deterministic tie-breaker
-        return p1 if score1 > score2 else p2
+    def _attempts_by_player(self) -> Dict[str, int]:
+        counts = Counter()
+        for guess in self.guesses:
+            player = guess.get("player")
+            if player:
+                counts[player] += 1
+        return {p: counts.get(p, 0) for p in self.players_order}
 
     def broadcast_state(self):
+        current_player = self.players_order[self.current_turn_idx]
+        attempts_left = max(0, self.max_attempts - len(self.guesses))
         for pname, conn in list(self.connections.items()):
             opp = self.other_player(pname)
             send_json(
@@ -481,15 +472,12 @@ class WordleServer:
                     "room": self.room,
                     "target_length": len(self.target_word),
                     "max_attempts": self.max_attempts,
-                    "guesses": self.states[pname].guesses,
-                    "attempts_left": max(0, self.max_attempts - len(self.states[pname].guesses)),
-                    "solved": self.states[pname].solved,
-                    "opponent": {
-                        "name": opp,
-                        "guesses": len(self.states[opp].guesses),
-                        "solved": self.states[opp].solved,
-                        "attempts_left": max(0, self.max_attempts - len(self.states[opp].guesses)),
-                    },
+                    "guesses": list(self.guesses),
+                    "attempts_left": attempts_left,
+                    "solved": self.solved,
+                    "current_player": current_player,
+                    "your_turn": pname == current_player,
+                    "opponent": {"name": opp},
                 },
             )
         if self.spectators:
@@ -498,38 +486,35 @@ class WordleServer:
                 "room": self.room,
                 "target_length": len(self.target_word),
                 "max_attempts": self.max_attempts,
-                "players": {
-                    p: {
-                        "guesses": len(st.guesses),
-                        "solved": st.solved,
-                        "attempts_left": max(0, self.max_attempts - len(st.guesses)),
-                    }
-                    for p, st in self.states.items()
-                },
+                "guesses": list(self.guesses),
+                "attempts_left": attempts_left,
+                "current_player": current_player,
+                "players": list(self.players_order),
             }
             for conn in list(self.spectators.values()):
                 send_json(conn, payload)
 
     def _player_state_payload(self, pname: str) -> dict:
         opp = self.other_player(pname)
+        current_player = self.players_order[self.current_turn_idx]
+        attempts_left = max(0, self.max_attempts - len(self.guesses))
         return {
             "type": "state",
             "you": pname,
             "room": self.room,
             "target_length": len(self.target_word),
             "max_attempts": self.max_attempts,
-            "guesses": self.states[pname].guesses,
-            "attempts_left": max(0, self.max_attempts - len(self.states[pname].guesses)),
-            "solved": self.states[pname].solved,
-            "opponent": {
-                "name": opp,
-                "guesses": len(self.states[opp].guesses),
-                "solved": self.states[opp].solved,
-                "attempts_left": max(0, self.max_attempts - len(self.states[opp].guesses)),
-            },
+            "guesses": list(self.guesses),
+            "attempts_left": attempts_left,
+            "solved": self.solved,
+            "current_player": current_player,
+            "your_turn": pname == current_player,
+            "opponent": {"name": opp},
         }
 
     def send_spectator_state(self, conn: socket.socket):
+        current_player = self.players_order[self.current_turn_idx]
+        attempts_left = max(0, self.max_attempts - len(self.guesses))
         send_json(
             conn,
             {
@@ -537,14 +522,10 @@ class WordleServer:
                 "room": self.room,
                 "target_length": len(self.target_word),
                 "max_attempts": self.max_attempts,
-                "players": {
-                    p: {
-                        "guesses": len(st.guesses),
-                        "solved": st.solved,
-                        "attempts_left": max(0, self.max_attempts - len(st.guesses)),
-                    }
-                    for p, st in self.states.items()
-                },
+                "guesses": list(self.guesses),
+                "attempts_left": attempts_left,
+                "current_player": current_player,
+                "players": list(self.players_order),
             },
         )
 
@@ -606,7 +587,7 @@ class WordleServer:
             payload["reason"] = reason
         if results is not None:
             payload["results"] = results
-        payload["attempts"] = {p: len(st.guesses) for p, st in self.states.items()}
+        payload["attempts"] = self._attempts_by_player()
         try:
             with socket.create_connection((self.report_host, self.report_port), timeout=3) as conn:
                 send_json(conn, payload)
@@ -622,9 +603,7 @@ class WordleServer:
         while self.running:
             if self.started_at and self.game_timeout_sec > 0:
                 if time.time() - self.started_at >= self.game_timeout_sec:
-                    winner = self.progress_winner()
-                    loser = self.other_player(winner) if winner else None
-                    self.finish_game(winner=winner, loser=loser, reason="timeout")
+                    self.finish_game(winner=None, loser=None, reason="timeout")
                     return
             time.sleep(0.5)
 
