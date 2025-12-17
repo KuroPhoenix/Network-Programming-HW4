@@ -152,7 +152,9 @@ class RPSServer:
             while self.running:
                 with self.lock:
                     if len(self.moves) >= 2 and len(self.moves) == len(self.connections):
-                        winner, loser, reason = self.decide_winner()
+                        moves_copy = dict(self.moves)
+                        players_order = list(self.connections.keys())
+                        winner, loser, reason = self.decide_winner(moves_copy, players_order)
                         self.finish_game(winner, loser, reason)
                         return
                 time.sleep(0.1)
@@ -249,7 +251,7 @@ class RPSServer:
                 },
             )
 
-    def decide_winner(self):
+    def decide_winner(self, moves_copy: Optional[Dict[str, str]] = None, players_order: Optional[list[str]] = None):
         """
         With up to 3 players:
           - If all same move → tie (deterministic winner = first player).
@@ -258,9 +260,10 @@ class RPSServer:
             tie-broken deterministically by name.
         """
         beats = {("rock", "scissors"), ("scissors", "paper"), ("paper", "rock")}
-        with self.lock:
-            moves_copy = dict(self.moves)
-            players_order = list(self.connections.keys())
+        if moves_copy is None or players_order is None:
+            with self.lock:
+                moves_copy = dict(self.moves)
+                players_order = list(self.connections.keys())
         unique_moves = set(moves_copy.values())
         if len(unique_moves) == 1 or len(unique_moves) == 3:
             winner = players_order[0] if players_order else None
