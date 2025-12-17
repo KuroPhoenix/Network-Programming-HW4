@@ -118,6 +118,8 @@ def main():
                                                 print(f"Error [{resp.code}]: {resp.message}")
                                             else:
                                                 print("Review successfully edited.")
+                                                selected["content"] = new_review.get("content")
+                                                selected["score"] = new_review.get("score")
                                         if action == "back":
                                             break
 
