@@ -86,11 +86,20 @@ def print_rules(text: str | None = None):
 def print_state(state: Dict):
     you = state.get("you")
     your_move = state.get("your_move")
-    opp = (state.get("opponent") or {}).get("name")
-    opp_sub = (state.get("opponent") or {}).get("submitted")
     print("\n=== RPS State ===")
     print(f"You: {you}, move: {your_move or 'PENDING'}")
-    print(f"Opponent {opp}: submitted={bool(opp_sub)}")
+    players = state.get("players") or []
+    if players:
+        for p in players:
+            name = p.get("name")
+            submitted = bool(p.get("submitted"))
+            if name == you:
+                continue
+            print(f"{name}: submitted={submitted}")
+    else:
+        opp = (state.get("opponent") or {}).get("name")
+        opp_sub = (state.get("opponent") or {}).get("submitted")
+        print(f"Opponent {opp}: submitted={bool(opp_sub)}")
 
 
 def print_prompt() -> None:

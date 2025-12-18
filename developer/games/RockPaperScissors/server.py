@@ -241,8 +241,8 @@ class RPSServer:
     def broadcast_state(self):
         with self.lock:
             moves_copy = dict(self.moves)
+            players_list = [{"name": p, "submitted": p in moves_copy} for p in self.players]
         for pname, conn in list(self.connections.items()):
-            opp = self.other_player(pname)
             send_json(
                 conn,
                 {
@@ -250,7 +250,7 @@ class RPSServer:
                     "room": self.room,
                     "you": pname,
                     "your_move": moves_copy.get(pname),
-                    "opponent": {"name": opp, "submitted": opp in moves_copy},
+                    "players": players_list,
                 },
             )
 

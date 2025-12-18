@@ -1,7 +1,7 @@
 {
   "game_name": "RockPaperScissors",
   "author": "bob",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Three-player Rock-Paper-Scissors with room-hosted server.",
   "type": "CLI",
   "max_players": 3,
