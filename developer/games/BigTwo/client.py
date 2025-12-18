@@ -6,6 +6,8 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional
+from dataclasses import dataclass
+from collections import Counter
 
 def _configure_logging(log_name: str) -> None:
     root = None
@@ -28,6 +30,27 @@ def _configure_logging(log_name: str) -> None:
 
 _configure_logging("game_bigtwo_client.log")
 logger = logging.getLogger(__name__)
+
+SUITS = ["C", "D", "H", "S"]  # ascending; S highest
+SUIT_VALUE = {"C": 1, "D": 2, "H": 3, "S": 4}
+RANK_VAL = {str(r): r for r in range(3, 11)} | {"J": 11, "Q": 12, "K": 13, "A": 14, "2": 15}
+RANK_STR = {11: "J", 12: "Q", 13: "K", 14: "A", 15: "2"}
+
+
+@dataclass(frozen=True)
+class Card:
+    rank: int
+    suit: str
+
+    def label(self) -> str:
+        return f"{RANK_STR.get(self.rank, str(self.rank))}{self.suit}"
+
+
+@dataclass
+class Combo:
+    kind: str
+    cards: list[Card]
+    weight: tuple
 
 
 def send_json(conn: socket.socket, obj: dict) -> bool:
@@ -85,6 +108,90 @@ def prompt_play(hand, can_pass):
         return {"type": "surrender"}
     cards = raw.replace(",", " ").split()
     return {"type": "play", "cards": cards}
+
+
+def parse_cards(labels: list[str]) -> list[Card]:
+    res = []
+    for lab in labels:
+        lab = lab.strip().upper()
+        if len(lab) < 2:
+            raise ValueError(f"bad card {lab}")
+        suit = lab[-1]
+        rank_str = lab[:-1]
+        if suit not in SUITS:
+            raise ValueError(f"bad suit {lab}")
+        if rank_str not in RANK_VAL:
+            raise ValueError(f"bad rank {lab}")
+        res.append(Card(RANK_VAL[rank_str], suit))
+    return res
+
+
+def normalize_hand(cards: list[Card]) -> list[Card]:
+    return sorted(cards, key=lambda c: (c.rank, SUIT_VALUE[c.suit]))
+
+
+def classify_combo(cards: list[Card]) -> Optional[Combo]:
+    sorted_cards = normalize_hand(cards)
+    if len(sorted_cards) == 1:
+        c = sorted_cards[0]
+        return Combo("single", sorted_cards, (c.rank, SUIT_VALUE[c.suit]))
+    if len(sorted_cards) == 2 and sorted_cards[0].rank == sorted_cards[1].rank:
+        top = max(sorted_cards, key=lambda c: SUIT_VALUE[c.suit])
+        return Combo("pair", sorted_cards, (top.rank, SUIT_VALUE[top.suit]))
+    if len(sorted_cards) != 5:
+        return None
+
+    counts: dict[int, int] = {}
+    for c in sorted_cards:
+        counts[c.rank] = counts.get(c.rank, 0) + 1
+
+    is_fullhouse = sorted(counts.values()) == [2, 3]
+    four_rank = next((r for r, cnt in counts.items() if cnt == 4), None)
+    straight = all(sorted_cards[i].rank + 1 == sorted_cards[i + 1].rank for i in range(4))
+    same_suit = len({c.suit for c in sorted_cards}) == 1
+
+    if is_fullhouse:
+        triple_rank = max(counts, key=lambda r: counts[r])
+        dom = max([c for c in sorted_cards if c.rank == triple_rank], key=lambda c: SUIT_VALUE[c.suit])
+        return Combo("fullhouse", sorted_cards, (dom.rank, SUIT_VALUE[dom.suit]))
+    if four_rank is not None:
+        dom = max([c for c in sorted_cards if c.rank == four_rank], key=lambda c: SUIT_VALUE[c.suit])
+        return Combo("fourofkind", sorted_cards, (dom.rank, SUIT_VALUE[dom.suit]))
+    if straight:
+        dom = sorted_cards[-1]
+        if same_suit:
+            return Combo("straightflush", sorted_cards, (dom.rank, SUIT_VALUE[dom.suit]))
+        return Combo("straight", sorted_cards, (dom.rank, SUIT_VALUE[dom.suit]))
+    return None
+
+
+COMBO_ORDER = {
+    "single": 1,
+    "pair": 2,
+    "fullhouse": 3,
+    "straight": 4,
+    "fourofkind": 5,
+    "straightflush": 6,
+}
+
+
+def beats(candidate: Combo, current: Combo) -> bool:
+    c_mode = COMBO_ORDER[candidate.kind]
+    cur_mode = COMBO_ORDER[current.kind]
+    if c_mode > 4:
+        return c_mode > cur_mode
+    if c_mode != cur_mode:
+        return False
+    return candidate.weight > current.weight
+
+
+def has_cards(hand: list[str], play: list[str]) -> bool:
+    hand_counts = Counter(c.upper() for c in hand)
+    play_counts = Counter(c.upper() for c in play)
+    for card, cnt in play_counts.items():
+        if hand_counts.get(card, 0) < cnt:
+            return False
+    return True
 
 
 def main():
@@ -165,6 +272,33 @@ def main():
                     can_pass = True  # pass is always allowed in the C++ ruleset
                     while True:
                         play = prompt_play(hand, can_pass)
+                        if play.get("type") == "play":
+                            cards_raw = play.get("cards", [])
+                            if not has_cards(hand, cards_raw):
+                                print("Invalid move: cards not in hand")
+                                continue
+                            try:
+                                play_cards = parse_cards(cards_raw)
+                            except ValueError as e:
+                                print(f"Invalid move: {e}")
+                                continue
+                            combo = classify_combo(play_cards)
+                            if not combo:
+                                print("Invalid move: invalid combo")
+                                continue
+                            if last_combo:
+                                try:
+                                    last_cards = parse_cards(last_combo.get("cards", []))
+                                    last_combo_obj = classify_combo(last_cards)
+                                except Exception:
+                                    last_combo_obj = None
+                                if last_combo_obj:
+                                    if len(combo.cards) != len(last_combo_obj.cards):
+                                        print("Invalid move: must match card count")
+                                        continue
+                                    if not beats(combo, last_combo_obj):
+                                        print("Invalid move: does not beat current combo")
+                                        continue
                         send_json(conn, play)
                         resp = recv_json(conn)
                         if not resp:
