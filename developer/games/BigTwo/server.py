@@ -281,6 +281,7 @@ class BigTwoServer:
                                 continue
                             if not beats(combo, self.current_combo):
                                 send_json(self.connections[current_player], {"type": "error", "message": "does not beat current combo"})
+                                # keep current turn alive; prompt again
                                 continue
                         # valid play
                         self.remove_cards(hand, played_cards)
