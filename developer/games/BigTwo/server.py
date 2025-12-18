@@ -267,20 +267,25 @@ class BigTwoServer:
                             played_cards = parse_cards(msg.get("cards", []))
                         except ValueError as e:
                             send_json(self.connections[current_player], {"type": "error", "message": str(e)})
+                            send_json(self.connections[current_player], self.state_msg(current_player, your_turn=True))
                             continue
                         if not self.contains_cards(hand, played_cards):
                             send_json(self.connections[current_player], {"type": "error", "message": "cards not in hand"})
+                            send_json(self.connections[current_player], self.state_msg(current_player, your_turn=True))
                             continue
                         combo = classify_combo(played_cards)
                         if not combo:
                             send_json(self.connections[current_player], {"type": "error", "message": "invalid combo"})
+                            send_json(self.connections[current_player], self.state_msg(current_player, your_turn=True))
                             continue
                         if self.current_combo:
                             if len(combo.cards) != len(self.current_combo.cards):
                                 send_json(self.connections[current_player], {"type": "error", "message": "must match card count"})
+                                send_json(self.connections[current_player], self.state_msg(current_player, your_turn=True))
                                 continue
                             if not beats(combo, self.current_combo):
                                 send_json(self.connections[current_player], {"type": "error", "message": "does not beat current combo"})
+                                send_json(self.connections[current_player], self.state_msg(current_player, your_turn=True))
                                 # keep current turn alive; prompt again
                                 continue
                         # valid play

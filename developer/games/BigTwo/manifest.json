@@ -1,7 +1,7 @@
 {
   "game_name": "BigTwo",
   "author": "bob",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Two-player Big Two (card game) built in C++.",
   "type": "CLI",
   "max_players": 2,
