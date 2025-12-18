@@ -1,7 +1,7 @@
 {
   "game_name": "ConnectFour",
   "author": "bob",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Two-player Connect Four with a Pygame interface.",
   "type": "GUI",
   "max_players": 2,
