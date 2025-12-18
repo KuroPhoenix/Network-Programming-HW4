@@ -181,7 +181,7 @@ def main():
                                                 print("No reviews for this game yet! Be the first to review!")
                                             else:
                                                 for r in reviews:
-                                                    print(f"{r.get('author')}: {r.get('content')}")
+                                                    print(f"{r.get('author')}: {r.get('content')} (score={r.get('score')})")
                                     if action == "review_game":
                                         resp = client.list_game_review(selected.get("game_name", ""))
                                         if resp.status != "ok":
@@ -203,7 +203,14 @@ def main():
                                                         print(f"Error [{add_resp.code}]: {add_resp.message}")
                                                     else:
                                                         print("Review submitted.")
-#===========================================GAME DETAILS END=================================================================
+                                                        # Refresh catalogue so details show the latest average/score.
+                                                        refresh = client.list_games()
+                                                        if refresh.status == "ok":
+                                                            game_catalogue = refresh.payload.get("games", game_catalogue)
+                                                            updated = next((g for g in game_catalogue if g.get("game_name") == selected.get("game_name")), None)
+                                                            if updated:
+                                                                selected = updated
+                            #===========================================GAME DETAILS END=================================================================
                             elif action == "next":
                                 if page_end < len(game_catalogue):
                                     page_start += 2
